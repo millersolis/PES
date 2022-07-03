@@ -39,12 +39,17 @@ static dwt_config_t config = {
 /* Buffer to store received frame. See NOTE 1 below. */
 #define FRAME_LEN_MAX 127
 static uint8 rx_buffer[FRAME_LEN_MAX];
+static char rx_char_buffer[FRAME_LEN_MAX];
+/* Inter-frame delay period, in milliseconds. */
+#define TX_DELAY_MS 500
 
 /* Hold copy of status register state here for reference so that it can be examined at a debug breakpoint. */
 static uint32 status_reg = 0;
 
 /* Hold copy of frame length of frame received (if good) so that it can be examined at a debug breakpoint. */
 static uint16 frame_len = 0;
+static char len[5];
+static char status[15];
 
 /**
  * Application entry point.
@@ -102,9 +107,26 @@ int dw_main(void)
             stdio_write("Frame received!\r\n");
             /* A frame has been received, copy it to our local buffer. */
             frame_len = dwt_read32bitreg(RX_FINFO_ID) & RX_FINFO_RXFL_MASK_1023;
+
+            sprintf(len, "%u", (unsigned int)frame_len);
+            stdio_write(len);
+
             if (frame_len <= FRAME_LEN_MAX)
             {
                 dwt_readrxdata(rx_buffer, frame_len, 0);
+                stdio_write("Data: ");
+				// Parse and print received frame
+				for (i = 0 ; i < FRAME_LEN_MAX; i++)
+				{
+					sprintf(rx_char_buffer + i, "%ui", rx_buffer[i]);
+				}
+
+				rx_char_buffer[FRAME_LEN_MAX -1] = '\0';
+
+				stdio_write(rx_char_buffer);
+            }
+            else {
+            	stdio_write("Frame TOO long\r\n");
             }
 
             /* Clear good RX frame event in the DW1000 status register. */
@@ -112,9 +134,19 @@ int dw_main(void)
         }
         else
         {
+        	stdio_write("Status error: ");
+        	sprintf(status, "%lu", status_reg);
+			stdio_write(status);
             /* Clear RX error events in the DW1000 status register. */
             dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_ALL_RX_ERR);
+            status_reg = dwt_read32bitreg(SYS_STATUS_ID);
+
+            stdio_write("CLEARED - Status error: ");
+            sprintf(status, "%lu", status_reg);
+			stdio_write(status);
         }
+
+        Sleep(TX_DELAY_MS);
         stdio_write("NEXT-FRAME\r\n");
     }
 }

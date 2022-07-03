@@ -88,7 +88,7 @@ int dw_main(void)
          * function to access it.*/
         while (!(dwt_read32bitreg(SYS_STATUS_ID) & SYS_STATUS_TXFRS))
         {
-        	stdio_write("Polling for TX frame event is set\n");
+        	stdio_write("Polling for TX frame event is set\r\n");
         };
 
         /* Clear TX frame sent event. */
@@ -99,7 +99,7 @@ int dw_main(void)
 
         /* Increment the blink frame sequence number (modulo 256). */
         tx_msg[BLINK_FRAME_SN_IDX]++;
-    	stdio_write("NEXT\n");
+    	stdio_write("NEXT\r\n");
     }
 //    while(1)
 //    {

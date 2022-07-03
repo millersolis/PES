@@ -104,7 +104,7 @@ int dw_main(void)
 //    while(1)
 //    {
 //    	uint32_t a = dwt_readdevid();
-//    	uint32_t a = 5.0000003030;
+//    	// uint32_t a = 5.0000003030;
 //    	char buffer[50];
 //    	sprintf(buffer, "%lu", a);
 //    	stdio_write(buffer);

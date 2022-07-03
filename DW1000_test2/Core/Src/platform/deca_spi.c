@@ -98,9 +98,8 @@ int readfromspi(uint16_t headerLength,
     /* Blocking: Check whether previous transfer has been finished */
     while (HAL_SPI_GetState(&hspi1) != HAL_SPI_STATE_READY);
 
-    HAL_GPIO_WritePin(DW_NSS_GPIO_Port, DW_NSS_Pin, GPIO_PIN_SET); /**< Put chip select line high */
-    HAL_Delay(3000);
-	stdio_write("Tested NSS/n");
+    stdio_write("Reading SPI\r\n");
+
     HAL_GPIO_WritePin(DW_NSS_GPIO_Port, DW_NSS_Pin, GPIO_PIN_RESET); /**< Put chip select line low */
 
     /* Send header */
