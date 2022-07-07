@@ -1,0 +1,2 @@
+stdio_d.c:31:6:stdio_init	16	static
+stdio_d.c:42:12:stdio_write	24	static

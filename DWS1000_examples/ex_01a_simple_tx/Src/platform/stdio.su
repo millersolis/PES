@@ -1,0 +1,2 @@
+stdio.c:33:6:stdio_init	0	static
+stdio.c:44:12:stdio_write	16	static
