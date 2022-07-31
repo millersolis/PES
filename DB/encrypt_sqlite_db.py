@@ -7,8 +7,8 @@ from Crypto.Random import get_random_bytes
 from Crypto.Protocol.KDF import scrypt
 import io
 
-OUTPUTPATH = '/Users/spencerpauls/Documents/School/capstone_code/database/sqlite_dbs/test_sqlite_db_encrypted.db'
-INPUTPATH = '/Users/spencerpauls/Documents/School/capstone_code/database/sqlite_dbs/test_sqlite_db.db'
+OUTPUTPATH = '/Users/spencerpauls/Documents/School/capstone_code/database/sqlite_dbs/echo_db_encrypted.db'
+INPUTPATH = '/Users/spencerpauls/Documents/School/capstone_code/database/sqlite_dbs/echo_db.db'
 
 sqlite_insert_size = 5000
 
@@ -86,9 +86,9 @@ def create_table(conn, create_table_sql):
         print(e)
 
 
-def insert_multiple_into_access_keys_table(conn, data_list):
+def insert_multiple_into_RID_table(conn, data_list):
 
-    sql = ''' INSERT OR IGNORE INTO access_keys(id, user_id, sha256_hash, private_key, creation_date)
+    sql = ''' INSERT OR IGNORE INTO RID(public_RID_key, private_RID_key, public_PDM_key, user_id, creation_date)
                 VALUES(?, ?, ?, ?, ?) '''
 
     cur = conn.cursor()
@@ -100,8 +100,20 @@ def insert_multiple_into_access_keys_table(conn, data_list):
 
 def insert_multiple_into_users_table(conn, data_list):
 
-    sql = ''' INSERT OR IGNORE INTO user(id, first_name, last_name, seat_height, handlebar_height, creation_date)
-                VALUES(?, ?, ?, ?, ?, ?) '''
+    sql = ''' INSERT OR IGNORE INTO user(user_id, first_name, last_name, blood_type, seat_height, handlebar_height, creation_date)
+                VALUES(?, ?, ?, ?, ?, ?, ?) '''
+
+    cur = conn.cursor()
+
+    cur.executemany(sql, data_list)
+
+    conn.commit()
+
+
+def insert_multiple_into_PDM_table(conn, data_list):
+
+    sql = ''' INSERT OR IGNORE INTO PDM(public_PDM_key, creation_date)
+                VALUES(?, ?) '''
 
     cur = conn.cursor()
 
@@ -117,24 +129,12 @@ def create_sqlite_file(conn, unencrypted_sqlite_file):
 
     PRIVATE_KEY = generate_private_key(PASSWORD, SALT)
 
-    sql_create_access_keys_table = """
-    CREATE TABLE IF NOT EXISTS access_keys (
-        id integer PRIMARY KEY,
-        user_id integer NOT NULL,
-        sha256_hash text NOT NULL,
-        private_key text NOT NULL,
-        creation_date text,
-        update_date text,
-        update_by text,
-        FOREIGN KEY (user_id) REFERENCES user (id)
-    );
-    """
-
     sql_create_user_table = """
     CREATE TABLE IF NOT EXISTS user (
-        id integer PRIMARY KEY,
+        user_id text PRIMARY KEY,
         first_name text NOT NULL,
         last_name text NOT NULL,
+        blood_type text,
         seat_height text,
         handlebar_height text,
         creation_date text,
@@ -143,50 +143,76 @@ def create_sqlite_file(conn, unencrypted_sqlite_file):
     );
     """
 
-    create_table(conn, sql_create_access_keys_table)
+    sql_create_RID_table = """
+    CREATE TABLE IF NOT EXISTS RID (
+        public_RID_key text PRIMARY KEY,
+        private_RID_key text NOT NULL,
+        public_PDM_key text NOT NULL,
+        user_id text NOT NULL,
+        creation_date text,
+        update_date text,
+        update_by text,
+        FOREIGN KEY (user_id) REFERENCES user (user_id),
+        FOREIGN KEY (public_PDM_key) REFERENCES PDM (public_PDM_key)
+    );
+    """
+
+    sql_create_PDM_table = """
+    CREATE TABLE IF NOT EXISTS PDM (
+        public_PDM_key text PRIMARY KEY,
+        creation_date text,
+        update_date text,
+        update_by text
+    );
+    """
+
+    create_table(conn, sql_create_RID_table)
     create_table(conn, sql_create_user_table)
+    create_table(conn, sql_create_PDM_table)
 
-    access_keys_data = get_access_keys_data(unencrypted_sqlite_file)
     user_data = get_user_data(unencrypted_sqlite_file)
+    RID_data = get_RID_data(unencrypted_sqlite_file)
+    PDM_data = get_PDM_data(unencrypted_sqlite_file)
 
-    access_keys_table_list = []
-    for doc in access_keys_data:
+    RID_table_list = []
+    for doc in RID_data:
 
-        private_key_unencrypted = doc['private_key']
-        id = doc['id']
+        private_key_unencrypted = doc['private_RID_key']
+        public_key = doc['public_RID_key']
+        public_PDM_key = doc['public_PDM_key']
         user_id = doc['user_id']
 
-        data_encrypted = encrypt(str(private_key_unencrypted), SALT, PRIVATE_KEY)
+        private_key_encrypted = encrypt(str(private_key_unencrypted), SALT, PRIVATE_KEY)
 
-        sha256_hash = str(hashlib.sha256(private_key_unencrypted.encode()).hexdigest())
+        RID_table = (public_key, private_key_encrypted, public_PDM_key, user_id, current_date_str)
 
-        access_keys_table = (id, user_id, sha256_hash, data_encrypted, current_date_str)
+        if (len(RID_table_list) < sqlite_insert_size):
 
-        if (len(access_keys_table_list) < sqlite_insert_size):
-
-            access_keys_table_list.append(access_keys_table)
+            RID_table_list.append(RID_table)
 
         else:
-            insert_multiple_into_access_keys_table(conn, access_keys_table_list)
-            access_keys_table_list.clear()
+            insert_multiple_into_RID_table(conn, RID_table_list)
+            RID_table_list.clear()
 
-    insert_multiple_into_access_keys_table(conn, access_keys_table_list)
+    insert_multiple_into_RID_table(conn, RID_table_list)
 
     user_table_list = []
     for doc in user_data:
 
         first_name_unencrypted = doc['first_name']
         last_name_unencrypted = doc['last_name']
+        blood_type_unencrypted = doc['blood_type']
         seat_height_unencrypted = doc['seat_height']
         handlebar_height_unencrypted = doc['handlebar_height']
-        id = doc['id']
+        user_id = doc['user_id']
 
         first_name_encrypted = encrypt(str(first_name_unencrypted), SALT, PRIVATE_KEY)
         last_name_encrypted = encrypt(str(last_name_unencrypted), SALT, PRIVATE_KEY)
+        blood_type_encrypted = encrypt(str(blood_type_unencrypted), SALT, PRIVATE_KEY)
         seat_height_encrypted = encrypt(str(seat_height_unencrypted), SALT, PRIVATE_KEY)
         handlebar_height_encrypted = encrypt(str(handlebar_height_unencrypted), SALT, PRIVATE_KEY)
 
-        user_table = (id, first_name_encrypted, last_name_encrypted, seat_height_encrypted, handlebar_height_encrypted, current_date_str)
+        user_table = (user_id, first_name_encrypted, last_name_encrypted, blood_type_encrypted, seat_height_encrypted, handlebar_height_encrypted, current_date_str)
 
         if (len(user_table_list) < sqlite_insert_size):
 
@@ -198,19 +224,55 @@ def create_sqlite_file(conn, unencrypted_sqlite_file):
 
     insert_multiple_into_users_table(conn, user_table_list)
 
+    ## PDM ACTUALLY DOESN'T NEED TO ENCRYPT ANYTHING
+    PDM_table_list = []
+    for doc in PDM_data:
 
-def get_access_keys_data(db_file):
+        public_PDM_key = doc['public_PDM_key']
+
+        PDM_table = (public_PDM_key, current_date_str)
+
+        if (len(PDM_table_list) < sqlite_insert_size):
+
+            PDM_table_list.append(PDM_table)
+
+        else:
+            insert_multiple_into_PDM_table(conn, PDM_table_list)
+            PDM_table_list.clear()
+
+    insert_multiple_into_PDM_table(conn, PDM_table_list)
+
+
+def get_RID_data(db_file):
     conn = create_connection(db_file)
     with conn:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
 
         query = """
-                SELECT id
+                SELECT public_RID_key
+                    , private_RID_key
+                    , public_PDM_key
                     , user_id
-                    , private_key
                     , creation_date
-                FROM access_keys;"""
+                FROM RID;"""
+
+        cur.execute(query)
+        rows = cur.fetchall()
+
+    return rows
+
+
+def get_PDM_data(db_file):
+    conn = create_connection(db_file)
+    with conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+
+        query = """
+                SELECT public_PDM_key
+                    , creation_date
+                FROM PDM;"""
 
         cur.execute(query)
         rows = cur.fetchall()
@@ -225,9 +287,10 @@ def get_user_data(db_file):
         cur = conn.cursor()
 
         query = """
-                SELECT id
+                SELECT user_id
                     , first_name
                     , last_name
+                    , blood_type
                     , seat_height
                     , handlebar_height
                     , creation_date
