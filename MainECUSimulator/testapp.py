@@ -11,14 +11,11 @@ class SenderReceiver:
         # Code to format can message data here
         msg = can.Message(arbitration_id=0xffff, data=[10, 1, 0, 1, 3, 1, 4, 1], is_extended_id=False)
         self.bus.send(msg)
-<<<<<<< HEAD
 
     def send_enrollment_table_to_pdm(self):
         # Code to format JSON response from DB here
         msg = can.Message(arbitration_id=0xffff, data=[10, 1, 0, 1, 3, 1, 4, 1], is_extended_id=False)
         self.bus.send(msg)
-=======
->>>>>>> main
        
     def recv_can_message(self, app):
         while True:
@@ -31,11 +28,7 @@ class SenderReceiver:
         # Note that channel will change depending on the port
         # bus = can.interface.Bus(bustype='seeedstudio', channel='com4', bitrate=500000)
         # bus = can.Bus(bustype='seeedstudio', channel='com4', bitrate=500000, operation_mode='normal')
-<<<<<<< HEAD
         self.bus = can.Bus(bustype='seeedstudio', channel='com10', bitrate=500000, operation_mode='normal',frame_type='STD')
-=======
-        self.bus = can.Bus(bustype='seeedstudio', channel='/dev/tty.usbserial-1420', bitrate=500000, operation_mode='loopback_and_silent')
->>>>>>> main
        
   
 class App(tk.Tk):
@@ -68,11 +61,7 @@ class App(tk.Tk):
         self.lock_label = tk.Label(master=states_frame, text='STOP', fg='black', bg='#e2c3b8', width=25, height=8)
         self.lock_label.pack()
 
-<<<<<<< HEAD
         self.start_button = tk.Button(text='Send enrollment table', fg='black', bg='green', width=40, height=3, command=sender.send_can_message)      
-=======
-        self.start_button = tk.Button(text='Press to start', fg='black', bg='green', width=10, height=3, command=sender.send_can_message)      
->>>>>>> main
         self.start_button.grid(row=1, column=1)
         
         # Not sure if a text box should be used for the DB part but putting it here for now
