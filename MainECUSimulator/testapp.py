@@ -61,7 +61,7 @@ class App(tk.Tk):
         self.lock_label = tk.Label(master=states_frame, text='STOP', fg='black', bg='#e2c3b8', width=25, height=8)
         self.lock_label.pack()
 
-        self.start_button = tk.Button(text='Send enrollment table', fg='black', bg='green', width=40, height=3, command=sender.send_can_message)      
+        self.start_button = tk.Button(text='Send enrollment table', fg='black', bg='green', width=40, height=3, command=sender.send_enrollment_table_to_pdm)      
         self.start_button.grid(row=1, column=1)
         
         # Not sure if a text box should be used for the DB part but putting it here for now
