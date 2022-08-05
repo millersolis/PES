@@ -2723,6 +2723,11 @@ void _dwt_disablesequencing(void) // Disable sequencing and go to state "INIT"
 {
     _dwt_enableclocks(FORCE_SYS_XTI); // Set system clock to XTI
 
+    uint8_t buff[400] = { 0 };
+    if (DWT_ERROR == dwt_spicswakeup(&buff[0], 400)) {
+    	while(1);
+    };
+
     dwt_write16bitoffsetreg(PMSC_ID, PMSC_CTRL1_OFFSET, PMSC_CTRL1_PKTSEQ_DISABLE); // Disable PMSC ctrl of RF and RX clk blocks
 }
 
