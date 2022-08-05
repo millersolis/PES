@@ -6,7 +6,7 @@ import pandas as pd
 import uuid
 import json
 
-OUTPUTPATH = '/Users/spencerpauls/Documents/School/capstone_code/database/sqlite_dbs'
+OUTPUTPATH = './sqlite_dbs'
 SQLITE_FILENAME = 'echo_db.db'
 
 sql_create_user_table = """
@@ -282,6 +282,20 @@ def select_all_where_user_id(conn, user_id):
 
     return(df.to_json(orient="records"))
 
+def get_enrollment_table(conn, pdm_pub_key):
+
+    params = (pdm_pub_key,)
+
+    query = """
+        SELECT R.public_RID_key,
+            R.private_RID_key
+        FROM RID R
+        WHERE R.public_PDM_key = ?
+    """
+
+    df = pd.read_sql_query(query, conn, params = params)
+
+    return(df.to_json(orient="records"))
 
 def select_all_users(conn):
 
@@ -386,6 +400,19 @@ def sample_return_data(sqlite_db_path):
         print(json.dumps(parsed_json_1, indent=4))
         print(json.dumps(parsed_json_2, indent=4), '\n')
 
+def sample_get_enrollment_table_response(sqlite_db_path, motorcycle_pdm):
+    current_date = dt.datetime.now()
+    current_date_str = current_date.strftime('%Y-%m-%d %H:%M:%S')
+
+    conn = create_connection(sqlite_db_path)
+
+    with conn:
+
+        json_enrollment_table = get_enrollment_table(conn, motorcycle_pdm)
+
+        parsed_json_enrollment_table = json.loads(json_enrollment_table)
+
+        print(json.dumps(parsed_json_enrollment_table, indent=4), '\n')
 
 
 if __name__ == "__main__":
@@ -397,7 +424,13 @@ if __name__ == "__main__":
 
     # sample_creating(sqlite_file)
     # sample_updating(sqlite_file)
-    sample_return_data(sqlite_file)
+    # sample_return_data(sqlite_file)
+
+
+    # Assumme PDM public key is b06188d2-65d6-4ffb-b9b1-578b0e35e002
+    MOTORCYCLE_PDM = 'b06188d2-65d6-4ffb-b9b1-578b0e35e002'
+    sample_get_enrollment_table_response(sqlite_file, MOTORCYCLE_PDM)
+
 
     end_time = dt.datetime.now()
     elapsed_time = end_time - start_time

@@ -2,6 +2,7 @@ from logging import exception
 import sqlite3
 import hashlib
 import datetime as dt
+from sqlite3 import Error
 from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
 from Crypto.Protocol.KDF import scrypt
