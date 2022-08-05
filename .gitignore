@@ -1,0 +1,11 @@
+# layer one project-related stuff
+/*/.settings/
+/*/Debug/*
+/*/.mxproject
+/*/*Debug.launch
+
+# layer two project-related stuff
+/*/*/.settings/
+/*/*/Debug/
+/*/*/.mxproject
+/*/*/*Debug.launch
