@@ -34,7 +34,8 @@ typedef enum
 {
 	WAKEUP,
 	START,
-	LOCK
+	LOCK,
+	REQUEST
 } StateMessage;
 
 /* USER CODE END PTD */
@@ -189,21 +190,29 @@ void SendControlMessage(StateMessage state)
 	TxHeader.StdId = 0x103; // Arbitration_ID
 	TxHeader.TransmitGlobalTime = DISABLE;
 
-	TxData[0] = 0x01;
 
-	switch(state)
+	if (state == REQUEST)
 	{
-	case WAKEUP:
-		TxData[1] = 0x01;
-		break;
-	case START:
-		TxData[1] = 0x02;
-		break;
-	case LOCK:
-		TxData[1] = 0x03;
-		break;
-	default:
-		TxData[1] = 0x00;
+		TxData[0] = 0x02;
+	}
+	else
+	{
+		TxData[0] = 0x01;
+
+		switch(state)
+		{
+		case WAKEUP:
+			TxData[1] = 0x01;
+			break;
+		case START:
+			TxData[1] = 0x02;
+			break;
+		case LOCK:
+			TxData[1] = 0x03;
+			break;
+		default:
+			TxData[1] = 0x00;
+		}
 	}
 
 	if (HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox[0]) != HAL_OK)
