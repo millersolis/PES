@@ -70,6 +70,24 @@ static uint32 status_reg = 0;
 /* Hold copy of frame length of frame received (if good) so that it can be examined at a debug breakpoint. */
 static uint16 frame_len = 0;
 
+static char printBuffer[2*FRAME_LEN_MAX];
+void print_frame(uint8_t* frame, uint16_t length) {
+	for (int i = 0; i < 2*FRAME_LEN_MAX; ++i) {
+		printBuffer[i] = 0;
+	}
+
+	for (int i = 0; i < length; i++) 	{
+		snprintf(printBuffer + 2*i, 4, "%01x", frame[i]);
+		printBuffer[2*i] = printBuffer[2*i] == 0 ? '0' : printBuffer[2*i];
+		printBuffer[2*i+1] = printBuffer[2*i+1] == 0 ? '0' : printBuffer[2*i+1];
+	}
+
+	printBuffer[FRAME_LEN_MAX -1] = '\0';
+
+	stdio_write(printBuffer);
+	stdio_write("\r\n");
+}
+
 /**
  * Application entry point.
  */
@@ -77,6 +95,9 @@ int dw_main(void)
 {
     /* Display application name. */
     stdio_write(APP_NAME);
+
+	char buffer[50];
+	uint32_t ac;
 
     /* Reset and initialise DW1000. See NOTE 2 below.
      * For initialisation, DW1000 clocks must be temporarily set to crystal speed. After initialisation SPI rate can be increased for optimum
@@ -89,6 +110,10 @@ int dw_main(void)
         while (1)
         { };
     }
+
+	ac = dwt_readdevid();
+	sprintf(buffer, "device id is 0x%8x\r\n", (unsigned int)ac);
+
     port_set_dw1000_fastrate();
 
     /* Configure DW1000. See NOTE 3 below. */
@@ -148,12 +173,23 @@ int dw_main(void)
                 /* Increment the data frame sequence number (modulo 256). */
                 tx_msg[DATA_FRAME_SN_IDX]++;
             }
+
+			stdio_write("RECEIVED: 0x");
+			print_frame(rx_buffer, frame_len);
+
+			// if response was sent, print it
+            if ((frame_len == 14) && (rx_buffer[0] == 0xC5) && (rx_buffer[10] == 0x43) && (rx_buffer[11] == 0x2)) {
+            	stdio_write("SENT:     0x");
+            	print_frame(tx_msg, sizeof(tx_msg));
+            }
         }
         else
         {
             /* Clear RX error events in the DW1000 status register. */
             dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_ALL_RX_ERR);
         }
+
+        stdio_write("\r\n");
     }
 }
 #endif

@@ -69,6 +69,24 @@ static uint32 status_reg = 0;
 /* Hold copy of frame length of frame received (if good) so that it can be examined at a debug breakpoint. */
 static uint16 frame_len = 0;
 
+static char printBuffer[2*FRAME_LEN_MAX];
+void print_frame(uint8_t* frame, uint16_t length) {
+	for (int i = 0; i < 2*FRAME_LEN_MAX; ++i) {
+		printBuffer[i] = 0;
+	}
+
+	for (int i = 0; i < length; i++) 	{
+		snprintf(printBuffer + 2*i, 4, "%01x", frame[i]);
+		printBuffer[2*i] = printBuffer[2*i] == 0 ? '0' : printBuffer[2*i];
+		printBuffer[2*i+1] = printBuffer[2*i+1] == 0 ? '0' : printBuffer[2*i+1];
+	}
+
+	printBuffer[FRAME_LEN_MAX -1] = '\0';
+
+	stdio_write(printBuffer);
+	stdio_write("\r\n");
+}
+
 /**
  * Application entry point.
  */
@@ -76,6 +94,9 @@ int dw_main(void)
 {
     /* Display application name. */
     stdio_write(APP_NAME);
+
+	char buffer[50];
+	uint32_t ac;
 
     /* Reset and initialise DW1000. See NOTE 5 below.
      * For initialisation, DW1000 clocks must be temporarily set to crystal speed. After initialisation SPI rate can be increased for optimum
@@ -88,6 +109,10 @@ int dw_main(void)
         while (1)
         { };
     }
+
+	ac = dwt_readdevid();
+	sprintf(buffer, "device id is 0x%8x\r\n", (unsigned int)ac);
+
     port_set_dw1000_fastrate();
 
     /* Configure DW1000. See NOTE 6 below. */
@@ -102,6 +127,9 @@ int dw_main(void)
     /* Loop forever sending and receiving frames periodically. */
     while (1)
     {
+    	for (int i = 0; i < FRAME_LEN_MAX; ++i) {
+    		rx_buffer[i] = 0;
+    	}
         /* Write frame data to DW1000 and prepare transmission. See NOTE 7 below. */
         dwt_writetxdata(sizeof(tx_msg), tx_msg, 0); /* Zero offset in TX buffer. */
         dwt_writetxfctrl(sizeof(tx_msg), 0, 0); /* Zero offset in TX buffer, no ranging. */
@@ -145,6 +173,17 @@ int dw_main(void)
             dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR);
         }
 
+		stdio_write("SENT:     0x");
+		print_frame(tx_msg, sizeof(tx_msg));
+
+		// if response was received, print it
+		if (status_reg & SYS_STATUS_RXFCG) {
+			stdio_write("RECEIVED: 0x");
+			print_frame(rx_buffer, frame_len);
+		}
+
+		stdio_write("\r\n");
+
         /* Execute a delay between transmissions. */
         Sleep(TX_DELAY_MS);
 
@@ -158,10 +197,10 @@ int dw_main(void)
  *
  * 1. The device ID is a hard coded constant in the blink to keep the example simple but for a real product every device should have a unique ID.
  *    For development purposes it is possible to generate a DW1000 unique ID by combining the Lot ID & Part Number values programmed into the
- *    DW1000 during its manufacture. However there is no guarantee this will not conflict with someone else’s implementation. We recommended that
+ *    DW1000 during its manufacture. However there is no guarantee this will not conflict with someone elseï¿½s implementation. We recommended that
  *    customers buy a block of addresses from the IEEE Registration Authority for their production items. See "EUI" in the DW1000 User Manual.
  * 2. TX to RX delay can be set to 0 to activate reception immediately after transmission. But, on the responder side, it takes time to process the
- *    received frame and generate the response (this has been measured experimentally to be around 70 µs). Using an RX to TX delay slightly less than
+ *    received frame and generate the response (this has been measured experimentally to be around 70 ï¿½s). Using an RX to TX delay slightly less than
  *    this minimum turn-around time allows the application to make the communication efficient while reducing power consumption by adjusting the time
  *    spent with the receiver activated.
  * 3. This timeout is for complete reception of a frame, i.e. timeout duration must take into account the length of the expected frame. Here the value
