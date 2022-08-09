@@ -23,7 +23,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "ranging.h"
+#include "stdio_d.h"
+#include "rid.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -106,10 +107,8 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  setup_DW1000RSTnIRQ(0);
-
   stdio_init(&huart7);
-  dw_main();
+  rid_main();
 
   while (1)
   {

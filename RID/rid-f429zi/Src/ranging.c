@@ -99,25 +99,6 @@ static uint64 get_tx_timestamp_u64(void);
 static uint64 get_rx_timestamp_u64(void);
 static void final_msg_set_ts(uint8 *ts_field, uint64 ts);
 
-#define FRAME_LEN_MAX 1024
-static char printBuffer[2*FRAME_LEN_MAX];
-void print_frame(uint8_t* frame, uint16_t length) {
-	for (int i = 0; i < 2*FRAME_LEN_MAX; ++i) {
-		printBuffer[i] = 0;
-	}
-
-	for (int i = 0; i < length; i++) 	{
-		snprintf(printBuffer + 2*i, 4, "%01x", frame[i]);
-		printBuffer[2*i] = printBuffer[2*i] == 0 ? '0' : printBuffer[2*i];
-		printBuffer[2*i+1] = printBuffer[2*i+1] == 0 ? '0' : printBuffer[2*i+1];
-	}
-
-	printBuffer[FRAME_LEN_MAX -1] = '\0';
-
-	stdio_write(printBuffer);
-	stdio_write("\r\n");
-}
-
 /*! ------------------------------------------------------------------------------------------------------------------
  * @fn main()
  *
@@ -132,9 +113,6 @@ int dw_main(void)
     /* Display application name. */
     stdio_write(APP_NAME);
 
-	char buffer[50];
-	uint32_t ac;
-
     /* Reset and initialise DW1000.
      * For initialisation, DW1000 clocks must be temporarily set to crystal speed. After initialisation SPI rate can be increased for optimum
      * performance. */
@@ -146,10 +124,6 @@ int dw_main(void)
         while (1)
         { };
     }
-
-	ac = dwt_readdevid();
-	sprintf(buffer, "device id is 0x%8x\r\n", (unsigned int)ac);
-
     port_set_dw1000_fastrate();
 
     /* Configure DW1000. See NOTE 7 below. */
@@ -163,7 +137,7 @@ int dw_main(void)
      * As this example only handles one incoming frame with always the same delay and timeout, those values can be set here once for all. */
     dwt_setrxaftertxdelay(POLL_TX_TO_RESP_RX_DLY_UUS);
     dwt_setrxtimeout(RESP_RX_TIMEOUT_UUS);
-//    dwt_setpreambledetecttimeout(PRE_TIMEOUT);
+    dwt_setpreambledetecttimeout(PRE_TIMEOUT);
 
     /* Loop forever initiating ranging exchanges. */
     while (1)
@@ -184,10 +158,9 @@ int dw_main(void)
         /* Increment frame sequence number after transmission of the poll message (modulo 256). */
         frame_seq_nb++;
 
-        uint32 frame_len;
-
         if (status_reg & SYS_STATUS_RXFCG)
         {
+            uint32 frame_len;
 
             /* Clear good RX frame event and TX frame sent in the DW1000 status register. */
             dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_RXFCG | SYS_STATUS_TXFRS);
@@ -252,15 +225,6 @@ int dw_main(void)
             /* Reset RX to properly reinitialise LDE operation. */
             dwt_rxreset();
         }
-
-		stdio_write("SENT:     0x");
-		print_frame(tx_poll_msg, sizeof(tx_poll_msg));
-
-        if (frame_len > 0) {
-			stdio_write("RECEIVED: 0x");
-			print_frame(rx_buffer, frame_len);
-        }
-        stdio_write("\r\n");
 
         /* Execute a delay between ranging exchanges. */
         Sleep(RNG_DELAY_MS);
