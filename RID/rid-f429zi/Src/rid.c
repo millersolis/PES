@@ -9,26 +9,10 @@
 #include "stdio.h"
 #include "stdio_d.h"
 
-int init_dw1000()
-{
-	setup_DW1000RSTnIRQ(0);
+int init_dw1000();
+void setup_frame_filtering();
+int perform_blink();
 
-	reset_DW1000();
-	port_set_dw1000_slowrate();
-
-    if (dwt_initialise(DWT_LOADUCODE) != DWT_SUCCESS) {
-    	return DWT_ERROR;
-    }
-
-    port_set_dw1000_fastrate();
-
-    dwt_configure(&dw1000_config);
-
-    dwt_setrxantennadelay(RX_ANT_DLY);
-    dwt_settxantennadelay(TX_ANT_DLY);
-
-    return DWT_SUCCESS;
-}
 
 static uint8_t blink_msg[] = {
 	0x41, 0xCC,								// frame control; beacon, pan compression, and long addresses
@@ -53,57 +37,6 @@ static uint8_t ranging_init_msg[] = {
 
 static uint8_t rx_buffer[RX_BUF_LEN] = { 0 };
 
-int perform_blink()
-{
-    dwt_writetxdata(sizeof(blink_msg), blink_msg, 0);
-    dwt_writetxfctrl(sizeof(blink_msg), 0, 1);
-
-    if (dwt_starttx(DWT_START_TX_IMMEDIATE | DWT_RESPONSE_EXPECTED) != DWT_SUCCESS) {
-    	stdio_write("error: tx blink message failed.\r\n");
-    	return DWT_ERROR;
-    }
-
-	// poll for ranging init
-	uint32_t statusReg = 0;
-	uint32_t msgReceivedFlags = SYS_STATUS_RXFCG | SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR;
-	while (!((statusReg = dwt_read32bitreg(SYS_STATUS_ID)) & msgReceivedFlags));
-
-	memset(rx_buffer, 0, sizeof(rx_buffer));
-
-	uint32_t frameLen = dwt_read32bitreg(RX_FINFO_ID) & RX_FINFO_RXFL_MASK_1023;
-	if (frameLen <= RX_BUF_LEN) {
-		dwt_readrxdata(rx_buffer, frameLen, 0);
-	}
-
-	if ((statusReg & SYS_STATUS_ALL_RX_TO) != 0) {
-		print_timeout_errors(statusReg);
-
-        dwt_write32bitreg(SYS_STATUS_ID, msgReceivedFlags);
-		return DWT_ERROR;
-	}
-	else if ((statusReg & SYS_STATUS_ALL_RX_ERR) != 0) {
-		print_status_errors(statusReg);
-
-        dwt_write32bitreg(SYS_STATUS_ID, msgReceivedFlags);
-		return DWT_ERROR;
-	}
-
-	memset(rx_buffer, 0, sizeof(rx_buffer));
-
-	frameLen = dwt_read32bitreg(RX_FINFO_ID) & RX_FINFO_RXFL_MASK_1023;
-	if (frameLen <= RX_BUF_LEN) {
-		dwt_readrxdata(rx_buffer, frameLen, 0);
-	}
-
-	rx_buffer[2] = 0;
-	if (memcmp(rx_buffer, ranging_init_msg, RANGING_INIT_MSG_COMMON_LEN) != 0) {
-		stdio_write("received non-ranging-init message\r\n");
-		return DWT_ERROR;
-	}
-
-    return DWT_SUCCESS;
-}
-
 void rid_main()
 {
 	stdio_write("\r\nstarting RID\r\n");
@@ -112,6 +45,8 @@ void rid_main()
 		stdio_write("initializing dw1000 failed; spinlocking.\r\n");
 		while (1);
 	}
+
+	setup_frame_filtering();
 
 	dwt_setpreambledetecttimeout(RANGING_PREAMBLE_TIMEOUT);
 
@@ -173,4 +108,89 @@ void rid_main()
 		HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_RESET);
 		HAL_Delay(500);
 	}
+}
+
+int init_dw1000()
+{
+	setup_DW1000RSTnIRQ(0);
+
+	reset_DW1000();
+	port_set_dw1000_slowrate();
+
+    if (dwt_initialise(DWT_LOADUCODE) != DWT_SUCCESS) {
+    	return DWT_ERROR;
+    }
+
+    port_set_dw1000_fastrate();
+
+    dwt_configure(&dw1000_config);
+
+    dwt_setrxantennadelay(RX_ANT_DLY);
+    dwt_settxantennadelay(TX_ANT_DLY);
+
+    return DWT_SUCCESS;
+}
+
+void setup_frame_filtering()
+{
+	uint16 pan_id = 0xDECA;
+	uint16 short_addr = 0x3152; // 'R', '1' (little-endian)
+	uint8 extended_addr[] = {'R', 'I', 'D', '0', '0', '0', '0', '1'};
+
+    dwt_setpanid(pan_id);
+    dwt_setaddress16(short_addr);
+    dwt_seteui(extended_addr);
+
+	dwt_enableframefilter(DWT_FF_BEACON_EN | DWT_FF_DATA_EN);
+}
+
+int perform_blink()
+{
+    dwt_writetxdata(sizeof(blink_msg), blink_msg, 0);
+    dwt_writetxfctrl(sizeof(blink_msg), 0, 1);
+
+    if (dwt_starttx(DWT_START_TX_IMMEDIATE | DWT_RESPONSE_EXPECTED) != DWT_SUCCESS) {
+    	stdio_write("error: tx blink message failed.\r\n");
+    	return DWT_ERROR;
+    }
+
+	// poll for ranging init
+	uint32_t statusReg = 0;
+	uint32_t msgReceivedFlags = SYS_STATUS_RXFCG | SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR;
+	while (!((statusReg = dwt_read32bitreg(SYS_STATUS_ID)) & msgReceivedFlags));
+
+	memset(rx_buffer, 0, sizeof(rx_buffer));
+
+	uint32_t frameLen = dwt_read32bitreg(RX_FINFO_ID) & RX_FINFO_RXFL_MASK_1023;
+	if (frameLen <= RX_BUF_LEN) {
+		dwt_readrxdata(rx_buffer, frameLen, 0);
+	}
+
+	if ((statusReg & SYS_STATUS_ALL_RX_TO) != 0) {
+		print_timeout_errors(statusReg);
+
+        dwt_write32bitreg(SYS_STATUS_ID, msgReceivedFlags);
+		return DWT_ERROR;
+	}
+	else if ((statusReg & SYS_STATUS_ALL_RX_ERR) != 0) {
+		print_status_errors(statusReg);
+
+        dwt_write32bitreg(SYS_STATUS_ID, msgReceivedFlags);
+		return DWT_ERROR;
+	}
+
+	memset(rx_buffer, 0, sizeof(rx_buffer));
+
+	frameLen = dwt_read32bitreg(RX_FINFO_ID) & RX_FINFO_RXFL_MASK_1023;
+	if (frameLen <= RX_BUF_LEN) {
+		dwt_readrxdata(rx_buffer, frameLen, 0);
+	}
+
+	rx_buffer[2] = 0;
+	if (memcmp(rx_buffer, ranging_init_msg, RANGING_INIT_MSG_COMMON_LEN) != 0) {
+		stdio_write("received non-ranging-init message\r\n");
+		return DWT_ERROR;
+	}
+
+    return DWT_SUCCESS;
 }
