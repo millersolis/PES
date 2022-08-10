@@ -89,7 +89,7 @@ void rid_main()
 
 		uint8_t numErrors = 0;
 
-		while (numErrors < 5) {
+		while (numErrors < 50) {
 			if (perform_ranging() != DWT_SUCCESS) {
 				++numErrors;
 				HAL_Delay(5);
