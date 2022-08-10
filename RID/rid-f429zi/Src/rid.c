@@ -96,10 +96,18 @@ void rid_main()
 				continue;
 			}
 
+			// add optional receive for first auth message here
+
 			HAL_Delay(100);
 		}
 
 		HAL_GPIO_WritePin(GPIOB, LD2_Pin, GPIO_PIN_RESET);
+
+		if (numErrors >= 5) {
+			stdio_write("exiting ranging due to excessive errors\r\n");
+			continue;
+		}
+
 		stdio_write("starting authentication\r\n");
 		HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_SET);
 
