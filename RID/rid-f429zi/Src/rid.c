@@ -58,7 +58,7 @@ void rid_main()
 		HAL_GPIO_WritePin(GPIOB, LD1_Pin, GPIO_PIN_SET);
 
 		if (perform_blink() != DWT_SUCCESS) {
-			HAL_Delay(5);
+			HAL_Delay(20);
 			continue;
 		}
 
