@@ -18,36 +18,13 @@ typedef enum {
 } ecu_action_t;
 
 int init_dw1000();
+void setup_frame_filtering();
 int receive_blink();
 ecu_action_t check_ecu_action();
 void perform_action_on_bike(const ecu_action_t action);
 
 static double distance = 0.0;
 static double prevDistance = 0.0;
-
-int init_dw1000()
-{
-	setup_DW1000RSTnIRQ(0);
-
-	reset_DW1000();
-	port_set_dw1000_slowrate();
-
-	if (dwt_initialise(DWT_LOADUCODE) != DWT_SUCCESS) {
-		return DWT_ERROR;
-	}
-
-	port_set_dw1000_fastrate();
-
-	dwt_configure(&dw1000_config);
-
-	dwt_setrxantennadelay(RX_ANT_DLY);
-	dwt_settxantennadelay(TX_ANT_DLY);
-
-	dwt_setpreambledetecttimeout(PRE_TIMEOUT);
-
-	return DWT_SUCCESS;
-}
-
 
 #define BLINK_MSG_COMMON_LEN 22
 static uint8_t blink_msg[] = {
@@ -80,6 +57,8 @@ void pdm_main()
 		stdio_write("initializing dw1000 failed; spinlocking.\r\n");
 		while (1);
 	}
+
+    setup_frame_filtering();
 
     dwt_setpreambledetecttimeout(PRE_TIMEOUT);
 
@@ -165,6 +144,19 @@ int init_dw1000()
 	dwt_setpreambledetecttimeout(PRE_TIMEOUT);
 
 	return DWT_SUCCESS;
+}
+
+void setup_frame_filtering()
+{
+	uint16 pan_id = 0xDECA;
+	uint16 short_addr = 0x3150; // 'P', '1' (little-endian)
+	uint8 extended_addr[] = {'P', 'D', 'M', '0', '0', '0', '0', '1'};
+
+    dwt_setpanid(pan_id);
+    dwt_setaddress16(short_addr);
+    dwt_seteui(extended_addr);
+
+	dwt_enableframefilter(DWT_FF_BEACON_EN | DWT_FF_DATA_EN);
 }
 
 int receive_blink()
