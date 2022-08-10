@@ -2,10 +2,16 @@
 /*/.settings/
 /*/Debug/*
 /*/.mxproject
-/*/*Debug.launch
+/*/*.launch
+/*/*.ld
+/*/*.log
+/*/*.scratch
 
 # layer two project-related stuff
 /*/*/.settings/
 /*/*/Debug/
 /*/*/.mxproject
-/*/*/*Debug.launch
+/*/*/*.launch
+/*/*/*.ld
+/*/*/*.log
+/*/*/*.scratch
