@@ -11,8 +11,6 @@
  * @author Decawave
  */
 
-#include <sys/types.h>
-
 #include "port.h"
 #include "deca_device_api.h"
 #include "stm32f4xx_hal_conf.h"

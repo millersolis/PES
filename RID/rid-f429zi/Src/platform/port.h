@@ -21,6 +21,7 @@ extern "C" {
 
 #include <stdint.h>
 #include <string.h>
+#include <sys/types.h>
 #include "compiler.h"
 
 #include "stm32f4xx.h"
@@ -160,6 +161,7 @@ typedef enum
  *
  *******************************************************************************/
 
+extern void usleep(useconds_t usec);
 void Sleep(uint32_t Delay);
 unsigned long portGetTickCnt(void);
 

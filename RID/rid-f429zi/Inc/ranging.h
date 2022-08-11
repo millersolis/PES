@@ -1,6 +1,6 @@
 #ifndef RANGING_H
 #define RANGING_H
 
-void dw_main();
+int perform_ranging();
 
 #endif // RANGING_H

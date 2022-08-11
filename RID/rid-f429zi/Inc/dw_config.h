@@ -9,20 +9,24 @@
 #define UUS_TO_DWT_TIME 65536
 
 // delays for ranging
-#define TX_ANT_DLY 16505                // tx antenna delay (default 16505)
-#define RX_ANT_DLY 16505                // rx antenna delay (default 16505)
-#define POLL_RX_TO_RESP_TX_DLY_UUS 2750 // timeout from poll rx timestamp to response tx timestamp (default 2750)
-#define RESP_TX_TO_FINAL_RX_DLY_UUS 500 // timeout from ranging response tx response to rx enable (default 500)
-#define FINAL_RX_TIMEOUT_UUS 3300       // timeout to receive final ranging packet (default 3300)
-#define PRE_TIMEOUT 8                   // preamble timeout (default 8)
+#define TX_ANT_DLY 16505                	// tx antenna delay (default 16505)
+#define RX_ANT_DLY 16505                	// rx antenna delay (default 16505)
+#define POLL_TX_TO_RESP_RX_DLY_UUS 300		// timeout from poll tx timestamp to response rx timestamp (default 300)
+#define RESP_RX_TO_FINAL_TX_DLY_UUS 3100	// timeout from resp rx timestamp to final tx timestamp (default 3100)
+#define RESP_RX_TIMEOUT_UUS 2700			// timeout to receive response ranging packet (default 2700)
+#define DISCOVERY_PREAMBLE_TIMEOUT 100		// preamble timeout in discovery mode (default 100)
+#define RANGING_PREAMBLE_TIMEOUT 8          // preamble timeout in ranging mode (default 8)
+#define RNG_DELAY_MS 1000					// delay between consecutive ranging attempts
 
 /* Default communication configuration. We use here EVK1000's default mode (mode 3). */
 extern dwt_config_t dw1000_config;
 
+#define RX_BUF_LEN 128
+
 // standard ranging packet formats
-extern uint8_t rx_poll_msg[12];
-extern uint8_t tx_resp_msg[15];
-extern uint8_t rx_final_msg[24];
+extern uint8_t tx_poll_msg[12];
+extern uint8_t rx_resp_msg[15];
+extern uint8_t tx_final_msg[24];
 
 // ranging packet parameters
 #define ALL_MSG_SN_IDX 2             // frame byte index of sequence number (default 2)
