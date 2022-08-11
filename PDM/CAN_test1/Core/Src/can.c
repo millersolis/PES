@@ -57,7 +57,8 @@ void MX_CAN_Init(void)
   CAN_FilterTypeDef canfilterconfig;
 
   canfilterconfig.FilterActivation = CAN_FILTER_ENABLE;
-  canfilterconfig.FilterBank = 10;
+//  canfilterconfig.FilterBank = 10;
+  canfilterconfig.FilterBank = 0;
   canfilterconfig.FilterFIFOAssignment = CAN_RX_FIFO0;
   canfilterconfig.FilterIdHigh = 0;
   canfilterconfig.FilterIdLow = 0x0000;
