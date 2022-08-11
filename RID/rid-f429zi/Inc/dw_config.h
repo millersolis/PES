@@ -23,11 +23,6 @@ extern dwt_config_t dw1000_config;
 
 #define RX_BUF_LEN 128
 
-// standard ranging packet formats
-extern uint8_t tx_poll_msg[12];
-extern uint8_t rx_resp_msg[15];
-extern uint8_t tx_final_msg[24];
-
 // ranging packet parameters
 #define ALL_MSG_SN_IDX 2             // frame byte index of sequence number (default 2)
 #define FINAL_MSG_POLL_TX_TS_IDX 10  // index of poll tx timestamp in final ranging frame (default 10)

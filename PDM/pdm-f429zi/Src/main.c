@@ -69,7 +69,7 @@ static void MX_UART7_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-extern int dw_main(void);
+extern int pdm_main(void);
 
 /* USER CODE END 0 */
 
