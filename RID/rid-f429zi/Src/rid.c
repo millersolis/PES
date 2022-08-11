@@ -67,7 +67,7 @@ void rid_main()
 
 				rid_state = POLL;
 
-				if (send_ranging_final_msg() == DWT_ERROR) {
+				if (send_ranging_final_msg() != DWT_SUCCESS) {
 					// Check for max errors in ranging
 					if (numErrors >= 5) {
 						stdio_write("WARNING: Exiting ranging due to excessive errors\r\n");
