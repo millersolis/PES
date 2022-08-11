@@ -4,6 +4,7 @@
 #include "dw_config.h"
 #include "dw_helpers.h"
 #include "main.h"
+#include "pdm_can.h"
 #include "port.h"
 #include "ranging.h"
 #include "stdio.h"
@@ -52,6 +53,8 @@ static uint8_t blink_rx_buffer[RX_BUFFER_LEN] = { 0 };
 void pdm_main()
 {
 	stdio_write("\r\nstarting PDM\r\n");
+
+	init_can(&hcan1);
 
 	if (init_dw1000() != DWT_SUCCESS) {
 		stdio_write("initializing dw1000 failed; spinlocking.\r\n");
@@ -114,6 +117,12 @@ void pdm_main()
 
 
 		HAL_Delay(PDM_LOOP_DELAY);
+
+		if (send_can_message() != CAN_OK) {
+			stdio_write("canbad\r\n");
+			continue;
+		}
+		stdio_write("cangood\r\n");
 	}
 }
 
