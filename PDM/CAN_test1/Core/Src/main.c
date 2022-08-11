@@ -76,9 +76,14 @@ uint32_t TxMailbox[4];
 
 uint8_t count = 0;
 
+char rcvData[1024];
+
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
 {
 	HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &RxHeader, RxData);
+
+    strcat(rcvData, RxData);
+
 	HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
 }
 
