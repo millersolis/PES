@@ -88,7 +88,7 @@ void pdm_main()
 
 			double tmpDistance;
 			if (try_ranging(&tmpDistance) != DWT_SUCCESS) {
-				HAL_Delay(PDM_LOOP_DELAY);
+//				HAL_Delay(PDM_LOOP_DELAY);
 				continue;
 			}
 
@@ -112,13 +112,7 @@ void pdm_main()
 			HAL_Delay(PDM_LOOP_DELAY);
 		}
 
-		HAL_GPIO_WritePin(GPIOB, LD2_Pin, GPIO_PIN_RESET);
-		stdio_write("starting authentication\r\n");
-		HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_SET);
 
-		// do auth here
-
-		HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_RESET);
 		HAL_Delay(PDM_LOOP_DELAY);
 	}
 }
@@ -222,8 +216,19 @@ ecu_action_t check_ecu_action()
 void perform_action_on_bike(const ecu_action_t action) {
 	if (action == WAKEUP) {
 		stdio_write("got wakeup signal\r\n");
+
 	}
 	else if (action == LOCK) {
 		stdio_write("got lock signal\r\n");
 	}
+
+	HAL_GPIO_WritePin(GPIOB, LD2_Pin, GPIO_PIN_RESET);
+	stdio_write("starting authentication\r\n");
+	HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_SET);
+
+	// do auth for the action here
+
+	HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_RESET);
+
+	// if auth successful send CAN action control message
 }
