@@ -18,6 +18,7 @@
  * @author Decawave
  */
 #include "ranging.h"
+
 #include <string.h>
 
 #include "deca_device_api.h"
@@ -25,47 +26,35 @@
 #include "dw_config.h"
 #include "dw_helpers.h"
 #include "stdio.h"
-#include "stdio_d.h"
-#include <stdbool.h>
 #include "deca_spi.h"
 #include "port.h"
-#include <stdint.h>
 #include "rid.h"
-#include "rid_auth.h"
-
-extern uint8 rx_buffer[RX_BUF_LEN];	// From rid.c
 
 static uint8 frame_seq_nb = 0;
-static uint32 status_reg = 0;
-static int poll_retry_counter = 0;	// Counter of rx after poll timeout
+static uint8 rx_buffer[RX_BUF_LEN];
 
 typedef unsigned long long uint64;
 static uint64 poll_tx_ts;
 static uint64 resp_rx_ts;
 static uint64 final_tx_ts;
 
-uint8_t tx_poll_msg[12] = {0x41, 0x88, 0, 0xCA, 0xDE, 'P', '1', 'R', '1', 0x21, 0, 0};
-uint8_t rx_resp_msg[15] = {0x41, 0x88, 0, 0xCA, 0xDE, 'R', '1', 'P', '1', 0x10, 0x02, 0, 0, 0, 0};
-uint8_t tx_final_msg[24] = {0x41, 0x88, 0, 0xCA, 0xDE, 'P', '1', 'R', '1', 0x23, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-
 static uint64 get_tx_timestamp_u64(void);
 static uint64 get_rx_timestamp_u64(void);
 static void final_msg_set_ts(uint8 *ts_field, uint64 ts);
 
-
-bool is_ranging_init_msg(uint8_t* rx_buffer)
+bool is_ranging_init_msg(uint8_t* buffer)
 {
-	rx_buffer[ALL_MSG_SN_IDX] = 0;	// Make received frame count 0 to compare
-	return (memcmp(rx_buffer, ranging_init_msg, RANGING_INIT_MSG_COMMON_LEN) == 0);
+	buffer[ALL_MSG_SN_IDX] = 0;	// Make received frame count 0 to compare
+	return (memcmp(buffer, ranging_init_msg, RANGING_INIT_MSG_COMMON_LEN) == 0);
 }
 
-bool is_rx_resp_msg(uint8_t* rx_buffer)
+bool is_rx_resp_msg(uint8_t* buffer)
 {
-	rx_buffer[ALL_MSG_SN_IDX] = 0;	// Make received frame count 0 to compare
-	return (memcmp(rx_buffer, rx_resp_msg, ALL_MSG_COMMON_LEN) == 0);
+	buffer[ALL_MSG_SN_IDX] = 0;	// Make received frame count 0 to compare
+	return (memcmp(buffer, rx_resp_msg, ALL_MSG_COMMON_LEN) == 0);
 }
 
-void send_poll_msg()
+send_status_t send_poll_msg()
 {
 	/* Write frame data to DW1000 and prepare transmission. See NOTE 8 below. */
 	tx_poll_msg[ALL_MSG_SN_IDX] = frame_seq_nb;
@@ -74,117 +63,64 @@ void send_poll_msg()
 
 	/* Start transmission, indicating that a response is expected so that reception is enabled automatically after the frame is sent and the delay
 	 * set by dwt_setrxaftertxdelay() has elapsed. */
-	dwt_starttx(DWT_START_TX_IMMEDIATE | DWT_RESPONSE_EXPECTED);
+	if (dwt_starttx(DWT_START_TX_IMMEDIATE | DWT_RESPONSE_EXPECTED) != DWT_SUCCESS) {
+		return STATUS_SEND_ERROR;
+	}
+
+	/* Poll DW1000 until TX frame sent event set. */
+	while (!(dwt_read32bitreg(SYS_STATUS_ID) & SYS_STATUS_TXFRS))
+	{ };
 
 	/* Increment frame sequence number after transmission of the poll message (modulo 256). */
 	frame_seq_nb++;
+
+	return STATUS_SEND_OK;
 }
 
-/*! ------------------------------------------------------------------------------------------------------------------
- * @fn main()
- *
- * @brief Application entry point.
- *
- * @param  none
- *
- * @return none
- */
-
-bool retry_poll()
+receive_status_t receive_response_msg(uint8_t buffer[RX_BUF_LEN])
 {
-	bool do_retry = false;
-
-	if (poll_retry_counter > 3) {
-		poll_retry_counter = 0;
-	}
-	else {
-		poll_retry_counter++;
-		do_retry = true;
-	}
-
-	return do_retry;
-}
-
-rid_state_t init_ranging()
-{
-	dwt_setrxtimeout(POLL_RESP_TO_UUS);
-//	dwt_setrxtimeout(RESP_RX_TIMEOUT_UUS); // using default ranging example timeout after poll
-
-	send_poll_msg();
-
-	rid_state_t next_state = DISCOVERY;
+	uint32_t statusReg = 0;
 	uint32_t msgReceivedFlags = SYS_STATUS_RXFCG | SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR;
 
-	/* We assume that the transmission is achieved correctly, poll for reception of a frame or error/timeout. See NOTE 9 below. */
-	while (!((status_reg = dwt_read32bitreg(SYS_STATUS_ID)) & msgReceivedFlags))
-	{ };
+	while (!((statusReg = dwt_read32bitreg(SYS_STATUS_ID)) & msgReceivedFlags));
 
-	if ((status_reg & SYS_STATUS_ALL_RX_TO) != 0) {
-		print_timeout_errors(status_reg);
+	if ((statusReg & SYS_STATUS_ALL_RX_TO) != 0) {
+		print_timeout_errors(statusReg);
 
-		/* Clear good RX frame event in the DW1000 status register. */
-		dwt_write32bitreg(SYS_STATUS_ID, msgReceivedFlags);
-
-		if (retry_poll()) {
-			next_state = POLL;
-		}
-	}
-	else if ((status_reg & SYS_STATUS_ALL_RX_ERR) != 0) {
-		print_status_errors(status_reg);
-
-		/* Clear good RX frame event in the DW1000 status register. */
-		dwt_write32bitreg(SYS_STATUS_ID, msgReceivedFlags);
-
-		/* Reset RX to properly reinitialise LDE operation. */
+        dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR);
 		dwt_rxreset();
-
-		if (retry_poll()) {
-			next_state = POLL;
-		}
+		return STATUS_RECEIVE_TIMEOUT;
 	}
-	else {
+	else if ((statusReg & SYS_STATUS_ALL_RX_ERR) != 0) {
+		print_status_errors(statusReg);
 
-		uint32 frameLen;
-		frameLen = dwt_read32bitreg(RX_FINFO_ID) & RX_FINFO_RXFLEN_MASK;
-
-		if (frameLen <= RX_BUF_LEN) {
-			dwt_readrxdata(rx_buffer, frameLen, 0);
-		}
-
-		if (is_ranging_init_msg(rx_buffer)) {
-			stdio_write("received ranging-init message\r\n");
-			next_state = POLL;
-		}
-		else if (is_auth_request_msg(rx_buffer)) {
-			stdio_write("received auth request message\r\n");
-			next_state = AUTH_REPLY;
-		}
-		else if (is_rx_resp_msg(rx_buffer)) {
-			stdio_write("received ranging response message\r\n");
-			next_state = RANGING_FINAL;
-		}
-		else {
-			stdio_write("received non-ranging-init or non-auth_request or non-ranging_resp message\r\n");
-		}
+        dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR);
+		dwt_rxreset();
+		return STATUS_RECEIVE_ERROR;
 	}
 
-	return next_state;
+	uint32 frame_len;
+
+	/* Clear good RX frame event and TX frame sent in the DW1000 status register. */
+	dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_RXFCG | SYS_STATUS_TXFRS);
+
+	/* A frame has been received, read it into the local buffer. */
+	frame_len = dwt_read32bitreg(RX_FINFO_ID) & RX_FINFO_RXFLEN_MASK;
+	if (frame_len <= RX_BUF_LEN) {
+		dwt_readrxdata(buffer, frame_len, 0);
+	}
+
+	return STATUS_RECEIVE_OK;
 }
 
-
-// Returns DWT_ERROR if error happened, DWT_SUCCESS otherwise
-int send_ranging_final_msg()
+send_status_t send_final_msg()
 {
-
-	uint32 final_tx_time;
-	int ret;
-
 	/* Retrieve poll transmission and response reception timestamp. */
 	poll_tx_ts = get_tx_timestamp_u64();
 	resp_rx_ts = get_rx_timestamp_u64();
 
 	/* Compute final message transmission time. See NOTE 10 below. */
-	final_tx_time = (resp_rx_ts + (RESP_RX_TO_FINAL_TX_DLY_UUS * UUS_TO_DWT_TIME)) >> 8;
+	uint32_t final_tx_time = (resp_rx_ts + (RESP_RX_TO_FINAL_TX_DLY_UUS * UUS_TO_DWT_TIME)) >> 8;
 	dwt_setdelayedtrxtime(final_tx_time);
 
 	/* Final TX timestamp is the transmission time we programmed plus the TX antenna delay. */
@@ -199,29 +135,24 @@ int send_ranging_final_msg()
 	tx_final_msg[ALL_MSG_SN_IDX] = frame_seq_nb;
 	dwt_writetxdata(sizeof(tx_final_msg), tx_final_msg, 0); /* Zero offset in TX buffer. */
 	dwt_writetxfctrl(sizeof(tx_final_msg), 0, 1); /* Zero offset in TX buffer, ranging. */
-	ret = dwt_starttx(DWT_START_TX_DELAYED);
 
-	/* If dwt_starttx() returns an error, abandon this ranging exchange and proceed to the next one. See NOTE 12 below. */
-	if (ret == DWT_SUCCESS)
-	{
-		stdio_write("DEBUG: Timed tx of ranging final scheduled.\r\n");
-		/* Poll DW1000 until TX frame sent event set. See NOTE 9 below. */
-		while (!(dwt_read32bitreg(SYS_STATUS_ID) & SYS_STATUS_TXFRS))
-		{ };
-		stdio_write("DEBUG: Timed tx of ranging final successful.\r\n");
-
-		/* Clear TXFRS event. */
-		dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_TXFRS);
-
-		/* Increment frame sequence number after transmission of the final message (modulo 256). */
-		frame_seq_nb++;
-	}
-	else {
-		stdio_write("ERROR: Timed tx of ranging final failed.\r\n");
+	if (dwt_starttx(DWT_START_TX_DELAYED) != DWT_SUCCESS) {
+		return STATUS_SEND_ERROR;
 	}
 
-	return ret;
+	/* Poll DW1000 until TX frame sent event set. See NOTE 9 below. */
+	while (!(dwt_read32bitreg(SYS_STATUS_ID) & SYS_STATUS_TXFRS))
+	{ };
+
+	/* Clear TXFRS event. */
+	dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_TXFRS);
+
+	/* Increment frame sequence number after transmission of the final message (modulo 256). */
+	frame_seq_nb++;
+
+	return STATUS_SEND_OK;
 }
+
 /*! ------------------------------------------------------------------------------------------------------------------
  * @fn get_tx_timestamp_u64()
  *

@@ -8,25 +8,33 @@
 #include "ranging.h"
 #include "rid_auth.h"
 #include "stdio.h"
-#include <stdbool.h>
 #include "stdio_d.h"
-#include <stdint.h>
-#include <string.h>
+
+static state_t state;
+static uint8_t rid_rx_buffer[RX_BUF_LEN] = { 0 };
+
+uint8_t blink_msg[24] = {
+	0x41, 0xCC,								// frame control; beacon, pan compression, and long addresses
+	0,										// sequence number; filled by sender
+	0xCA, 0xDE,								// PAN ID; default to 0xDECA
+	'P', 'D', 'M', '0', '0', '0', '0', '1',	// destination address; pdm extended identifier
+	'R', 'I', 'D', '0', '0', '0', '0', '1',	// source address; rid extended identifier
+	0x21,									// data; 0x21 is function code for blink
+	0, 0									// FCS; filled as CRC of the frame by hardware
+};
+
+void update_state(state_t* state, const rid_state_t value);
+void print_state_if_changed(const state_t* state, const char str[32]);
+void clear_and_set_led(uint16_t gpioPin);
 
 int init_dw1000();
 void setup_frame_filtering();
-void send_blink_msg();
 rid_state_t perform_blink();
-
-static rid_state_t rid_state = DISCOVERY;	// Initial state
-
-uint8 rx_buffer[RX_BUF_LEN] = { 0 };
-
+rid_state_t perform_ranging();
 
 void rid_main()
 {
 	stdio_write("\r\nstarting RID\r\n");
-	HAL_GPIO_WritePin(GPIOB, LD1_Pin, GPIO_PIN_SET);
 
 	if (init_dw1000() != DWT_SUCCESS) {
 		stdio_write("initializing dw1000 failed; spinlocking.\r\n");
@@ -34,75 +42,72 @@ void rid_main()
 	}
 
 	setup_frame_filtering();
-//	dwt_setpreambledetecttimeout(RANGING_PREAMBLE_TIMEOUT);
-	dwt_setpreambledetecttimeout(0);
 
-	uint8_t numErrors = 0;
-
+	dwt_setpreambledetecttimeout(RANGING_PREAMBLE_TIMEOUT);
 
 	while (1) {
-//		dwt_setrxaftertxdelay(800);
-//		dwt_setrxtimeout(0xffff);
+		switch (state.value) {
+			case STATE_DISCOVERY:
+				print_state_if_changed(&state, "\r\nIn DISCOVERY\r\n");
+				clear_and_set_led(LD1_Pin);
 
-		// State Machine
-		switch(rid_state)
-		{
-			case DISCOVERY:
-				stdio_write("\r\nIn DISCOVERY\r\n");
-				HAL_GPIO_WritePin(GPIOB, LD1_Pin, GPIO_PIN_RESET);
+				dwt_setrxaftertxdelay(800);
+				dwt_setrxtimeout(0xffff);
 
-				rid_state = perform_blink();
+				update_state(&state, perform_blink());
+				HAL_Delay(100);
 				break;
 
-			case POLL:
-				stdio_write("\r\nIn POLL\r\n");
-				HAL_GPIO_WritePin(GPIOB, LD2_Pin, GPIO_PIN_SET);
+			case STATE_RANGING:
+				print_state_if_changed(&state, "\r\nIn RANGING\r\n");
+				clear_and_set_led(LD2_Pin);
 
-				rid_state = init_ranging();
+				dwt_setrxaftertxdelay(POLL_TX_TO_RESP_RX_DLY_UUS);
+				dwt_setrxtimeout(RESP_RX_TIMEOUT_UUS);
+
+				update_state(&state, perform_ranging());
+				HAL_Delay(MIN_DELAY_RANGING);
 				break;
 
-			case RANGING_FINAL:
-				stdio_write("\r\nIn RANGING_FINAL\r\n");
-				HAL_GPIO_WritePin(GPIOB, LD2_Pin, GPIO_PIN_RESET);
-
-				rid_state = POLL;
-
-				if (send_ranging_final_msg() != DWT_SUCCESS) {
-					// Check for max errors in ranging
-					if (numErrors >= 5) {
-						stdio_write("WARNING: Exiting ranging due to excessive errors\r\n");
-						rid_state = DISCOVERY;
-
-						// Reset ranging error count
-						numErrors = 0;
-					}
-					else {
-						++numErrors;
-					}
-				}
+			case STATE_AUTH_REPLY:
 				break;
-
-			case AUTH_REPLY:
-				stdio_write("\r\nIn AUTH_REPLY\r\n");
-				HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_SET);
-
-				// do auth here
-				print_auth_request_msg(rx_buffer);
-
-
-				rid_state = DISCOVERY;	// DEBUG
-				HAL_Delay(2000);	//DEBUG
-
-				HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_RESET);
-				break;
-
-			default:
-				// default state
-				stdio_write("\r\nWARNING: In default state\r\n");
-				rid_state = DISCOVERY;
 		}
-//		HAL_Delay(500);
 	}
+}
+
+void update_state(state_t* state, const rid_state_t value)
+{
+	if (state->value == value) {
+		state->hasChanged = 0;
+		return;
+	}
+
+	state->value = value;
+	state->hasChanged = true;
+
+	if (init_dw1000() != DWT_SUCCESS) {
+		stdio_write("initializing dw1000 failed; spinlocking.\r\n");
+		while (1);
+	}
+}
+
+void print_state_if_changed(const state_t* state, const char str[32])
+{
+	// if state is unchanged, don't print a new state value
+	if (state->hasChanged == false) {
+		return;
+	}
+
+	stdio_write(str);
+}
+
+void clear_and_set_led(uint16_t gpioPin)
+{
+	HAL_GPIO_WritePin(GPIOB, LD1_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(GPIOB, LD2_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_RESET);
+
+	HAL_GPIO_WritePin(GPIOB, gpioPin, GPIO_PIN_SET);
 }
 
 int init_dw1000()
@@ -141,64 +146,80 @@ void setup_frame_filtering()
 
 rid_state_t perform_blink()
 {
-	dwt_setrxtimeout(DISCOVERY_RESP_TO_UUS);
-//	dwt_setrxtimeout(0);
+    dwt_writetxdata(sizeof(blink_msg), blink_msg, 0);
+    dwt_writetxfctrl(sizeof(blink_msg), 0, 1);
 
-	send_blink_msg();
-
-	rid_state_t next_state = DISCOVERY;
+    if (dwt_starttx(DWT_START_TX_IMMEDIATE | DWT_RESPONSE_EXPECTED) != DWT_SUCCESS) {
+    	stdio_write("error: tx blink message failed.\r\n");
+    	return STATE_DISCOVERY;
+    }
 
 	// poll for ranging init
 	uint32_t statusReg = 0;
 	uint32_t msgReceivedFlags = SYS_STATUS_RXFCG | SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR;
 	while (!((statusReg = dwt_read32bitreg(SYS_STATUS_ID)) & msgReceivedFlags));
 
+	memset(rid_rx_buffer, 0, sizeof(rid_rx_buffer));
+
+	uint32_t frameLen = dwt_read32bitreg(RX_FINFO_ID) & RX_FINFO_RXFL_MASK_1023;
+	if (frameLen <= RX_BUF_LEN) {
+		dwt_readrxdata(rid_rx_buffer, frameLen, 0);
+	}
+
 	if ((statusReg & SYS_STATUS_ALL_RX_TO) != 0) {
 		print_timeout_errors(statusReg);
-
-        /* Clear good RX frame event in the DW1000 status register. */
         dwt_write32bitreg(SYS_STATUS_ID, msgReceivedFlags);
+		return STATE_DISCOVERY;
 	}
 	else if ((statusReg & SYS_STATUS_ALL_RX_ERR) != 0) {
 		print_status_errors(statusReg);
-
-        /* Clear good RX frame event in the DW1000 status register. */
         dwt_write32bitreg(SYS_STATUS_ID, msgReceivedFlags);
-	}
-	else {
-		memset(rx_buffer, 0, sizeof(rx_buffer));
-
-		uint32 frameLen;
-		frameLen = dwt_read32bitreg(RX_FINFO_ID) & RX_FINFO_RXFL_MASK_1023;
-		if (frameLen <= RX_BUF_LEN) {
-			dwt_readrxdata(rx_buffer, frameLen, 0);
-		}
-
-		if (is_ranging_init_msg(rx_buffer)) {
-			stdio_write("received ranging-init message\r\n");
-			next_state = POLL;
-		}
-		else if (is_auth_request_msg(rx_buffer)) {
-			stdio_write("received auth request message\r\n");
-			next_state = AUTH_REPLY;
-		}
-		else {
-			stdio_write("received non-ranging-init or non-auth-request message\r\n");
-		}
+		return STATE_DISCOVERY;
 	}
 
-    return next_state;
+	memset(rid_rx_buffer, 0, sizeof(rid_rx_buffer));
+
+	frameLen = dwt_read32bitreg(RX_FINFO_ID) & RX_FINFO_RXFL_MASK_1023;
+	if (frameLen <= RX_BUF_LEN) {
+		dwt_readrxdata(rid_rx_buffer, frameLen, 0);
+	}
+
+	rid_rx_buffer[2] = 0;
+	if (memcmp(rid_rx_buffer, ranging_init_msg, RANGING_INIT_MSG_COMMON_LEN) != 0) {
+		stdio_write("received non-ranging-init message\r\n");
+		return STATE_DISCOVERY;
+	}
+
+    return STATE_RANGING;
 }
 
-void send_blink_msg()
+rid_state_t perform_ranging()
 {
-	/* Write frame data to DW1000 and prepare transmission. See NOTE 7 below. */
-	dwt_writetxdata(sizeof(blink_msg), blink_msg, 0); /* Zero offset in TX buffer. */
-	dwt_writetxfctrl(sizeof(blink_msg), 0, 0); /* Zero offset in TX buffer, no ranging. */
+	if (send_poll_msg() != STATUS_SEND_OK) {
+		return STATE_RANGING;
+	}
 
-	/* Start transmission, indicating that a response is expected so that reception is enabled immediately after the frame is sent. */
-    if (dwt_starttx(DWT_START_TX_IMMEDIATE | DWT_RESPONSE_EXPECTED) != DWT_SUCCESS) {
-    	stdio_write("ERROR: Sending blink message failed.\r\n");
-    }
+	receive_status_t recResult = receive_response_msg(rid_rx_buffer);
+	if (recResult == STATUS_RECEIVE_TIMEOUT) {
+		return STATE_RANGING;
+	}
+	else if (recResult == STATUS_RECEIVE_ERROR) {
+		return STATE_RANGING;
+	}
+
+	if (is_ranging_init_msg(rid_rx_buffer)) {
+		stdio_write("received ranging init message\r\n");
+		return STATE_RANGING;
+	}
+	else if (is_auth_request_msg(rid_rx_buffer)) {
+		stdio_write("received auth request message\r\n");
+		return STATE_AUTH_REPLY;
+	}
+
+	if (send_final_msg() != STATUS_SEND_OK) {
+		stdio_write("failed to send ranging final message\r\n");
+		return STATE_RANGING;
+	}
+
+	return STATE_RANGING;
 }
-
