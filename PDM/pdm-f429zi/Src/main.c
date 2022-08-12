@@ -72,8 +72,6 @@ static void MX_CAN1_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-extern int pdm_main(void);
-
 /* USER CODE END 0 */
 
 /**

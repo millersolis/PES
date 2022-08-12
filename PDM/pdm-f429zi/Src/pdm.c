@@ -10,6 +10,9 @@
 #include "stdio.h"
 #include "stdio_d.h"
 
+static state_t state;
+static uint8_t pdm_rx_buffer[RX_BUF_LEN] = { 0 };
+
 #define PDM_LOOP_DELAY 10
 
 typedef enum {
@@ -18,37 +21,16 @@ typedef enum {
 	LOCK
 } ecu_action_t;
 
+void update_state(state_t* state, const pdm_state_t value);
+void print_state_if_changed(const state_t* state, const char str[32]);
+void clear_and_set_led(uint16_t gpioPin);
+
 int init_dw1000();
 void setup_frame_filtering();
-int receive_blink();
+pdm_state_t receive_blink();
+pdm_state_t perform_ranging();
 ecu_action_t check_ecu_action();
 void perform_action_on_bike(const ecu_action_t action);
-
-static double distance = 0.0;
-static double prevDistance = 0.0;
-
-#define BLINK_MSG_COMMON_LEN 22
-static uint8_t blink_msg[] = {
-	0x41, 0xCC,								// frame control; beacon, pan compression, and long addresses
-	0,										// sequence number; filled by sender
-	0xCA, 0xDE,								// PAN ID; default to 0xDECA
-	'P', 'D', 'M', '0', '0', '0', '0', '1', // destination address; pdm extended identifier
-	'R', 'I', 'D', '0', '0', '0', '0', '1', // source address; rid extended identifier
-	0x21,									// data; 0x21 is function code for blink
-	0, 0									// FCS; filled as CRC of the frame by hardware
-};
-
-static uint8_t ranging_init_msg[] = {
-	0x41, 0x8C,								// frame control; beacon, pan compression, and long addresses
-	0,										// sequence number; filled by sender
-	0xCA, 0xDE,								// PAN ID; default to 0xDECA
-	'R', 'I', 'D', '0', '0', '0', '0', '1', // destination address; pdm extended identifier
-	'P', '1',								// source address; pdm short identifier
-	0x20,									// data; 0x20 is ranging init function code
-	0, 0									// FCS; filled as CRC of the frame by hardware
-};
-#define BLINK_RX_BUFFER_LEN 128
-static uint8_t blink_rx_buffer[RX_BUFFER_LEN] = { 0 };
 
 void pdm_main()
 {
@@ -65,65 +47,82 @@ void pdm_main()
 
     dwt_setpreambledetecttimeout(PRE_TIMEOUT);
 
-	char dist_str[32] = {0};
-	while (1) {
-		dwt_setrxtimeout(0);
-		dwt_setpreambledetecttimeout(0);
-		dwt_rxenable(DWT_START_RX_IMMEDIATE);
+	uint8_t numNoOps = 0;
+	double distance = 0.0;
+    while (1) {
+    	switch(state.value) {
+    		case STATE_DISCOVERY:
+				print_state_if_changed(&state, "\r\nIn DISCOVERY\r\n");
+				clear_and_set_led(LD1_Pin);
 
-		stdio_write("starting discovery\r\n");
-		HAL_GPIO_WritePin(GPIOB, LD1_Pin, GPIO_PIN_SET);
+				// set pdm to idle and wait for next blink message
+    			dwt_setrxtimeout(0);
+    			dwt_setpreambledetecttimeout(0);
+    			dwt_rxenable(DWT_START_RX_IMMEDIATE);
 
-		if (receive_blink() != DWT_SUCCESS) {
-			HAL_Delay(PDM_LOOP_DELAY);
-			continue;
-		}
+    			update_state(&state, receive_blink());
+    			break;
 
-		HAL_GPIO_WritePin(GPIOB, LD1_Pin, GPIO_PIN_RESET);
-		stdio_write("starting ranging\r\n");
-		HAL_GPIO_WritePin(GPIOB, LD2_Pin, GPIO_PIN_SET);
+    		case STATE_RANGING:
+				print_state_if_changed(&state, "\r\nIn RANGING\r\n");
+				clear_and_set_led(LD2_Pin);
 
-		uint8_t numNoOps = 0;
+				dwt_setrxtimeout(0);
+				dwt_rxenable(DWT_START_RX_IMMEDIATE);
 
-		while (numNoOps < 50) {
-			dwt_setrxtimeout(0);
-			dwt_rxenable(DWT_START_RX_IMMEDIATE);
-
-			double tmpDistance;
-			if (try_ranging(&tmpDistance) != DWT_SUCCESS) {
-//				HAL_Delay(PDM_LOOP_DELAY);
-				continue;
-			}
-
-			prevDistance = distance;
-			distance = tmpDistance;
-
-			/* Display computed distance. */
-			snprintf(dist_str, 32, "DIST: %3.2f m\r\n", distance);
-			stdio_write(dist_str);
-
-			ecu_action_t action = check_ecu_action();
-
-			if (action == NO_OP) {
-				++numNoOps;
+				update_state(&state, perform_ranging(&distance, &numNoOps));
 				HAL_Delay(PDM_LOOP_DELAY);
-				continue;
-			}
+    			break;
 
-			perform_action_on_bike(action);
+    		case STATE_AUTHENTICATION:
+    			HAL_GPIO_WritePin(GPIOB, LD2_Pin, GPIO_PIN_RESET);
+    			stdio_write("starting authentication\r\n");
+    			HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_SET);
 
-			HAL_Delay(PDM_LOOP_DELAY);
-		}
+    			// do auth here
 
+    			HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_RESET);
+    			HAL_Delay(PDM_LOOP_DELAY);
 
-		HAL_Delay(PDM_LOOP_DELAY);
+    			if (send_can_message() != CAN_OK) {
+    				stdio_write("canbad\r\n");
+    				continue;
+    			}
+    			stdio_write("cangood\r\n");
+    			state.value = STATE_DISCOVERY;
+    			break;
+    	}
+    }
+}
 
-		if (send_can_message() != CAN_OK) {
-			stdio_write("canbad\r\n");
-			continue;
-		}
-		stdio_write("cangood\r\n");
+void update_state(state_t* state, const pdm_state_t value)
+{
+	if (state->value == value) {
+		state->hasChanged = 0;
+		return;
 	}
+
+	state->value = value;
+	state->hasChanged = true;
+}
+
+void print_state_if_changed(const state_t* state, const char str[32])
+{
+	// if state is unchanged, don't print a new state value
+	if (state->hasChanged == false) {
+		return;
+	}
+
+	stdio_write(str);
+}
+
+void clear_and_set_led(uint16_t gpioPin)
+{
+	HAL_GPIO_WritePin(GPIOB, LD1_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(GPIOB, LD2_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_RESET);
+
+	HAL_GPIO_WritePin(GPIOB, gpioPin, GPIO_PIN_SET);
 }
 
 int init_dw1000()
@@ -162,40 +161,41 @@ void setup_frame_filtering()
 	dwt_enableframefilter(DWT_FF_BEACON_EN | DWT_FF_DATA_EN);
 }
 
-int receive_blink()
+pdm_state_t receive_blink()
 {
 	// poll for blink message
 	uint32_t statusReg = 0;
 	uint32_t msgReceivedFlags = SYS_STATUS_RXFCG | SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR;
+
 	while (!((statusReg = dwt_read32bitreg(SYS_STATUS_ID)) & msgReceivedFlags));
 
 	if ((statusReg & SYS_STATUS_ALL_RX_TO) != 0) {
 		print_timeout_errors(statusReg);
 
         dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR);
-		return DWT_ERROR;
+		return STATE_DISCOVERY;
 	}
 	else if ((statusReg & SYS_STATUS_ALL_RX_ERR) != 0) {
 		print_status_errors(statusReg);
 
         dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR);
-		return DWT_ERROR;
+		return STATE_DISCOVERY;
 	}
 
     dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_RXFCG);
 
-	memset(blink_rx_buffer, 0, sizeof(blink_rx_buffer));
+	memset(pdm_rx_buffer, 0, sizeof(pdm_rx_buffer));
 
 	uint32_t frameLen = dwt_read32bitreg(RX_FINFO_ID) & RX_FINFO_RXFL_MASK_1023;
-	if (frameLen <= BLINK_RX_BUFFER_LEN) {
-		dwt_readrxdata(blink_rx_buffer, frameLen, 0);
+	if (frameLen <= RX_BUF_LEN) {
+		dwt_readrxdata(pdm_rx_buffer, frameLen, 0);
 	}
 
 	// zero out sequence number and FCS for comparison
-	blink_rx_buffer[2] = 0;
-	if (memcmp(blink_rx_buffer, blink_msg, BLINK_MSG_COMMON_LEN) != 0) {
+	pdm_rx_buffer[2] = 0;
+	if (memcmp(pdm_rx_buffer, blink_msg, BLINK_MSG_COMMON_LEN) != 0) {
 		stdio_write("received non-blink message\r\n");
-		return DWT_ERROR;
+		return STATE_DISCOVERY;
 	}
 
     dwt_writetxdata(sizeof(ranging_init_msg), ranging_init_msg, 0);
@@ -203,21 +203,67 @@ int receive_blink()
 
     if (dwt_starttx(DWT_START_TX_IMMEDIATE) != DWT_SUCCESS) {
     	stdio_write("error: tx ranging init message failed.\r\n");
-    	return DWT_ERROR;
+    	return STATE_DISCOVERY;
     }
 
-	return DWT_SUCCESS;
+	return STATE_RANGING;
+}
+
+pdm_state_t perform_ranging(double* distance, uint8_t* numNoOps)
+{
+	if (receive_poll_msg(pdm_rx_buffer) != STATUS_RECEIVE_OK) {
+		return DWT_ERROR;
+	}
+
+	if (is_poll_msg(pdm_rx_buffer) == false) {
+		stdio_write("received non-poll message\r\n");
+		return DWT_ERROR;
+	}
+
+	if (send_response_msg() != STATUS_SEND_OK) {
+		return DWT_ERROR;
+	}
+
+	if (receive_final_msg(pdm_rx_buffer) != STATUS_RECEIVE_OK) {
+		return DWT_ERROR;
+	}
+
+	if (is_final_msg(pdm_rx_buffer) == false) {
+		stdio_write("received non-final message\r\n");
+		return DWT_ERROR;
+	}
+
+	*distance = retrieve_ranging_result(pdm_rx_buffer);
+
+	/* Display computed distance. */
+	char dist_str[32] = {0};
+	snprintf(dist_str, 32, "DIST: %3.2f m\r\n", *distance);
+	stdio_write(dist_str);
+
+	ecu_action_t action = check_ecu_action();
+
+	if (action == NO_OP) {
+		++(*numNoOps);
+	}
+
+	if (*numNoOps < 50) {
+		return STATE_RANGING;
+	}
+
+	perform_action_on_bike(action);
+
+	return STATE_AUTHENTICATION;
 }
 
 ecu_action_t check_ecu_action()
 {
-	if (prevDistance >= 1.0 && distance < 1.0) {
-		return WAKEUP;
-	}
-
-	if (prevDistance <= 1.0 && distance > 1.0) {
-		return LOCK;
-	}
+//	if (prevDistance >= 1.0 && distance < 1.0) {
+//		return WAKEUP;
+//	}
+//
+//	if (prevDistance <= 1.0 && distance > 1.0) {
+//		return LOCK;
+//	}
 
 	return NO_OP;
 }
@@ -225,19 +271,8 @@ ecu_action_t check_ecu_action()
 void perform_action_on_bike(const ecu_action_t action) {
 	if (action == WAKEUP) {
 		stdio_write("got wakeup signal\r\n");
-
 	}
 	else if (action == LOCK) {
 		stdio_write("got lock signal\r\n");
 	}
-
-	HAL_GPIO_WritePin(GPIOB, LD2_Pin, GPIO_PIN_RESET);
-	stdio_write("starting authentication\r\n");
-	HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_SET);
-
-	// do auth for the action here
-
-	HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_RESET);
-
-	// if auth successful send CAN action control message
 }
