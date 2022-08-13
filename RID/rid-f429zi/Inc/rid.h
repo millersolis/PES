@@ -9,7 +9,7 @@ void rid_main();
 typedef enum rid_state_t {
 	STATE_DISCOVERY,
 	STATE_RANGING,
-	STATE_AUTH_REPLY
+	STATE_AUTHENTICATION
 } rid_state_t;
 
 typedef struct state_t {

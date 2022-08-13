@@ -1,15 +1,14 @@
 #include "ranging.h"
 
+#include <stdio.h>
 #include <stdint.h>
-
+#include <string.h>
 #include "deca_device_api.h"
 #include "deca_regs.h"
 #include "dw_config.h"
 #include "dw_helpers.h"
 #include "port.h"
-#include "stdio.h"
 #include "stdio_d.h"
-#include "string.h"
 
 uint8_t ranging_init_msg[18] = {
 	0x41, 0x8C,								// frame control; beacon, pan compression, and long addresses
@@ -41,12 +40,15 @@ bool is_final_msg(uint8_t* buffer)
 	return (memcmp(buffer, rx_final_msg, ALL_MSG_COMMON_LEN) == 0);
 }
 
+
 receive_status_t receive_poll_msg(uint8_t buffer[RX_BUF_LEN])
 {
 	uint32_t statusReg = 0;
 	uint32_t msgReceivedFlags = SYS_STATUS_RXFCG | SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR;
 
-	while (!((statusReg = dwt_read32bitreg(SYS_STATUS_ID)) & msgReceivedFlags));
+	dwt_rxenable(DWT_START_RX_IMMEDIATE);
+
+	while (!((statusReg = dwt_read32bitreg(SYS_STATUS_ID)) & msgReceivedFlags)) {}
 
 	if ((statusReg & SYS_STATUS_ALL_RX_TO) != 0) {
 		print_timeout_errors(statusReg);
@@ -93,7 +95,7 @@ send_status_t send_response_msg()
 	/* Write and send the response message. See NOTE 10 below.*/
 	tx_resp_msg[ALL_MSG_SN_IDX] = frame_seq_nb;
 	dwt_writetxdata(sizeof(tx_resp_msg), tx_resp_msg, 0); /* Zero offset in TX buffer. */
-	dwt_writetxfctrl(sizeof(tx_resp_msg), 0, 1); /* Zero offset in TX buffer, ranging. */
+	dwt_writetxfctrl(sizeof(tx_resp_msg), 0, 0); /* Zero offset in TX buffer, ranging. */
 	if (dwt_starttx(DWT_START_TX_DELAYED | DWT_RESPONSE_EXPECTED) != DWT_SUCCESS) {
 		return STATUS_SEND_ERROR;
 	}

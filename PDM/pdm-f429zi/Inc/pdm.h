@@ -9,6 +9,7 @@ extern void pdm_main();
 typedef enum rid_state_t {
 	STATE_DISCOVERY,
 	STATE_RANGING,
+	STATE_FLOOD_AUTH,
 	STATE_AUTHENTICATION
 } pdm_state_t;
 

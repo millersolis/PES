@@ -1,19 +1,29 @@
 #include "pdm.h"
 
+#include <stdio.h>
+#include "aes.h"
 #include "deca_regs.h"
 #include "dw_config.h"
 #include "dw_helpers.h"
 #include "main.h"
 #include "pdm_can.h"
+#include "pdm_auth.h"
 #include "port.h"
 #include "ranging.h"
-#include "stdio.h"
 #include "stdio_d.h"
+
+#define PDM_LOOP_DELAY 10
 
 static state_t state;
 static uint8_t pdm_rx_buffer[RX_BUF_LEN] = { 0 };
-
-#define PDM_LOOP_DELAY 10
+static struct AES_ctx aes_context;
+static uint8_t data[16] = { 0 };
+static uint8_t iv[16] = { 0 };
+static uint8_t symmetric_key[16] = {
+	'a', 'n', 'e', 'x', 't', 'r', 'a',
+	'b', 'o', 'r', 'i', 'n', 'g', 'k', 'e', 'y'
+};
+static uint64_t rolling_code = 0xB632F836BF96F22C;
 
 typedef enum {
 	NO_OP,
@@ -29,12 +39,21 @@ int init_dw1000();
 void setup_frame_filtering();
 pdm_state_t receive_blink();
 pdm_state_t perform_ranging();
+pdm_state_t flood_auth();
+pdm_state_t perform_authentication();
 ecu_action_t check_ecu_action();
 void perform_action_on_bike(const ecu_action_t action);
+
+static uint8_t numNoOps = 0;
+static double distance = 0.0;
+static double prevDistance = 0.0;
+static ecu_action_t nextAction =  NO_OP;
 
 void pdm_main()
 {
 	stdio_write("\r\nstarting PDM\r\n");
+
+	AES_init_ctx(&aes_context, &symmetric_key[0]);
 
 	init_can(&hcan1);
 
@@ -47,8 +66,6 @@ void pdm_main()
 
     dwt_setpreambledetecttimeout(PRE_TIMEOUT);
 
-	uint8_t numNoOps = 0;
-	double distance = 0.0;
     while (1) {
     	switch(state.value) {
     		case STATE_DISCOVERY:
@@ -67,29 +84,30 @@ void pdm_main()
 				print_state_if_changed(&state, "\r\nIn RANGING\r\n");
 				clear_and_set_led(LD2_Pin);
 
+				if (state.hasChanged == true) {
+					numNoOps = 0;
+				}
+
 				dwt_setrxtimeout(0);
 				dwt_rxenable(DWT_START_RX_IMMEDIATE);
 
-				update_state(&state, perform_ranging(&distance, &numNoOps));
+				update_state(&state, perform_ranging());
 				HAL_Delay(PDM_LOOP_DELAY);
     			break;
 
+    		case STATE_FLOOD_AUTH:
+    			print_state_if_changed(&state, "\r\nIn FLOOD AUTH\r\n");
+    			clear_and_set_led(LD3_Pin);
+
+				update_state(&state, flood_auth());
+				break;
+
     		case STATE_AUTHENTICATION:
-    			HAL_GPIO_WritePin(GPIOB, LD2_Pin, GPIO_PIN_RESET);
-    			stdio_write("starting authentication\r\n");
-    			HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_SET);
+    			print_state_if_changed(&state, "\r\nIn AUTHENTICATION\r\n");
+    			clear_and_set_led(LD3_Pin);
 
-    			// do auth here
-
-    			HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_RESET);
-    			HAL_Delay(PDM_LOOP_DELAY);
-
-    			if (send_can_message() != CAN_OK) {
-    				stdio_write("canbad\r\n");
-    				continue;
-    			}
-    			stdio_write("cangood\r\n");
-    			state.value = STATE_DISCOVERY;
+    			update_state(&state, perform_authentication());
+    			HAL_Delay(1000);
     			break;
     	}
     }
@@ -209,61 +227,141 @@ pdm_state_t receive_blink()
 	return STATE_RANGING;
 }
 
-pdm_state_t perform_ranging(double* distance, uint8_t* numNoOps)
+pdm_state_t perform_ranging()
 {
 	if (receive_poll_msg(pdm_rx_buffer) != STATUS_RECEIVE_OK) {
-		return DWT_ERROR;
+		return STATE_RANGING;
 	}
 
 	if (is_poll_msg(pdm_rx_buffer) == false) {
 		stdio_write("received non-poll message\r\n");
-		return DWT_ERROR;
+		return STATE_RANGING;
 	}
 
 	if (send_response_msg() != STATUS_SEND_OK) {
-		return DWT_ERROR;
+		return STATE_RANGING;
 	}
 
 	if (receive_final_msg(pdm_rx_buffer) != STATUS_RECEIVE_OK) {
-		return DWT_ERROR;
+		return STATE_RANGING;
 	}
 
 	if (is_final_msg(pdm_rx_buffer) == false) {
 		stdio_write("received non-final message\r\n");
-		return DWT_ERROR;
-	}
-
-	*distance = retrieve_ranging_result(pdm_rx_buffer);
-
-	/* Display computed distance. */
-	char dist_str[32] = {0};
-	snprintf(dist_str, 32, "DIST: %3.2f m\r\n", *distance);
-	stdio_write(dist_str);
-
-	ecu_action_t action = check_ecu_action();
-
-	if (action == NO_OP) {
-		++(*numNoOps);
-	}
-
-	if (*numNoOps < 50) {
 		return STATE_RANGING;
 	}
 
-	perform_action_on_bike(action);
+	distance = retrieve_ranging_result(pdm_rx_buffer);
+
+	/* Display computed distance. */
+	char dist_str[32] = {0};
+	snprintf(dist_str, 32, "DIST: %3.2f m\r\n", distance);
+	stdio_write(dist_str);
+
+	nextAction = check_ecu_action();
+
+	if (nextAction == NO_OP) {
+		++(numNoOps);
+	}
+
+	if (numNoOps < 10) {
+		return STATE_RANGING;
+	}
+
+	nextAction = WAKEUP;
+	perform_action_on_bike(nextAction);
+
+	return STATE_FLOOD_AUTH;
+}
+
+pdm_state_t flood_auth()
+{
+	if (send_auth_request() != STATUS_SEND_OK) {
+		return STATE_FLOOD_AUTH;
+	}
+
+	dwt_setpreambledetecttimeout(0x0fff);
+	dwt_setrxtimeout(0);
+	dwt_rxenable(DWT_START_RX_IMMEDIATE);
+
+	if (receive_auth_reply(pdm_rx_buffer) != STATUS_RECEIVE_OK) {
+		return STATE_FLOOD_AUTH;
+	}
+
+	if (is_auth_reply_msg(pdm_rx_buffer) == false) {
+		stdio_write("received non-auth-reply message\r\n");
+		return STATE_FLOOD_AUTH;
+	}
 
 	return STATE_AUTHENTICATION;
 }
 
+pdm_state_t perform_authentication()
+{
+	dwt_setpreambledetecttimeout(0);
+	dwt_setrxtimeout(0);
+	dwt_rxenable(DWT_START_RX_IMMEDIATE);
+
+	if (receive_auth_reply(pdm_rx_buffer) != STATUS_RECEIVE_OK) {
+		return STATE_AUTHENTICATION;
+	}
+
+	if (is_auth_reply_msg(pdm_rx_buffer) == false) {
+		stdio_write("received non-auth-reply message\r\n");
+		return STATE_AUTHENTICATION;
+	}
+
+	memcpy(&data[0], &pdm_rx_buffer[AUTH_FRAME_COMMON_LEN], 16);
+	memcpy(&iv[0], &pdm_rx_buffer[AUTH_FRAME_COMMON_LEN+16], 16);
+	AES_ctx_set_iv(&aes_context, &iv[0]);
+	AES_CBC_decrypt_buffer(&aes_context, &data[0], 16);
+
+	uint64_t receivedRollingCode = 0;
+	memcpy((uint8_t*) &receivedRollingCode, &data[0], sizeof(uint64_t));
+
+	if ((receivedRollingCode - rolling_code) >= 100) {
+		stdio_write("received bad rolling code\r\n");
+		return STATE_DISCOVERY;
+	}
+
+	rolling_code = receivedRollingCode;
+
+	// seed initial vector for AES128 CBC encryption
+	for (int index = 0; index < 4; ++index) {
+		HAL_RNG_GenerateRandomNumber(&hrng, (uint32_t*) &iv[4*index]);
+	}
+
+	// zero out the full 16 bytes, then add the action's enum value for encryption
+	memset(&data[0], 0, 16);
+	memcpy(&data[0], (uint8_t*) &nextAction, sizeof(uint8_t));
+
+	// set initial vector for AES128 CBC encryption, then encrypt the data
+	AES_ctx_set_iv(&aes_context, &iv[0]);
+	AES_CBC_encrypt_buffer(&aes_context, &data[0], 16);
+
+	if (send_auth_ack(data, iv) != STATUS_SEND_OK) {
+		return STATE_AUTHENTICATION;
+	}
+
+	HAL_Delay(PDM_LOOP_DELAY);
+	if (send_can_message() != CAN_OK) {
+		stdio_write("canbad\r\n");
+		return STATE_AUTHENTICATION;
+	}
+	stdio_write("cangood\r\n");
+
+	return STATE_DISCOVERY;
+}
+
 ecu_action_t check_ecu_action()
 {
-//	if (prevDistance >= 1.0 && distance < 1.0) {
-//		return WAKEUP;
-//	}
-//
-//	if (prevDistance <= 1.0 && distance > 1.0) {
-//		return LOCK;
-//	}
+	if (prevDistance >= 1.0 && distance < 1.0) {
+		return WAKEUP;
+	}
+
+	if (prevDistance <= 1.0 && distance > 1.0) {
+		return LOCK;
+	}
 
 	return NO_OP;
 }

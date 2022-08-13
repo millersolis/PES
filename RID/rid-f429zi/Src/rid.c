@@ -1,5 +1,9 @@
 #include "rid.h"
 
+#include <time.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include "aes.h"
 #include "deca_regs.h"
 #include "dw_config.h"
 #include "dw_helpers.h"
@@ -7,11 +11,18 @@
 #include "port.h"
 #include "ranging.h"
 #include "rid_auth.h"
-#include "stdio.h"
 #include "stdio_d.h"
 
 static state_t state;
 static uint8_t rid_rx_buffer[RX_BUF_LEN] = { 0 };
+static struct AES_ctx aes_context;
+static uint8_t data[16] = { 0 };
+static uint8_t iv[16] = { 0 };
+static uint8_t symmetric_key[16] = {
+	'a', 'n', 'e', 'x', 't', 'r', 'a',
+	'b', 'o', 'r', 'i', 'n', 'g', 'k', 'e', 'y'
+};
+static uint64_t rolling_code = 0xB632F836BF96F22C;
 
 uint8_t blink_msg[24] = {
 	0x41, 0xCC,								// frame control; beacon, pan compression, and long addresses
@@ -31,20 +42,21 @@ int init_dw1000();
 void setup_frame_filtering();
 rid_state_t perform_blink();
 rid_state_t perform_ranging();
+rid_state_t try_authentication();
+rid_state_t perform_authentication();
 
 void rid_main()
 {
 	stdio_write("\r\nstarting RID\r\n");
+
+	AES_init_ctx(&aes_context, &symmetric_key[0]);
 
 	if (init_dw1000() != DWT_SUCCESS) {
 		stdio_write("initializing dw1000 failed; spinlocking.\r\n");
 		while (1);
 	}
 
-	setup_frame_filtering();
-
-	dwt_setpreambledetecttimeout(RANGING_PREAMBLE_TIMEOUT);
-
+	uint8_t count = 0;
 	while (1) {
 		switch (state.value) {
 			case STATE_DISCOVERY:
@@ -53,6 +65,7 @@ void rid_main()
 
 				dwt_setrxaftertxdelay(800);
 				dwt_setrxtimeout(0xffff);
+				dwt_setpreambledetecttimeout(RANGING_PREAMBLE_TIMEOUT);
 
 				update_state(&state, perform_blink());
 				HAL_Delay(100);
@@ -65,11 +78,22 @@ void rid_main()
 				dwt_setrxaftertxdelay(POLL_TX_TO_RESP_RX_DLY_UUS);
 				dwt_setrxtimeout(RESP_RX_TIMEOUT_UUS);
 
-				update_state(&state, perform_ranging());
+				++count;
+				if (count >= 10) {
+					update_state(&state, try_authentication());
+					count = 0;
+				}
+				else {
+					update_state(&state, perform_ranging());
+				}
 				HAL_Delay(MIN_DELAY_RANGING);
 				break;
 
-			case STATE_AUTH_REPLY:
+			case STATE_AUTHENTICATION:
+				print_state_if_changed(&state, "\r\nIn AUTHENTICATION\r\n");
+				clear_and_set_led(LD3_Pin);
+
+				update_state(&state, perform_authentication());
 				break;
 		}
 	}
@@ -89,6 +113,8 @@ void update_state(state_t* state, const rid_state_t value)
 		stdio_write("initializing dw1000 failed; spinlocking.\r\n");
 		while (1);
 	}
+
+	dwt_setpreambledetecttimeout(0);
 }
 
 void print_state_if_changed(const state_t* state, const char str[32])
@@ -128,6 +154,8 @@ int init_dw1000()
     dwt_setrxantennadelay(RX_ANT_DLY);
     dwt_settxantennadelay(TX_ANT_DLY);
 
+	setup_frame_filtering();
+
     return DWT_SUCCESS;
 }
 
@@ -159,13 +187,6 @@ rid_state_t perform_blink()
 	uint32_t msgReceivedFlags = SYS_STATUS_RXFCG | SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR;
 	while (!((statusReg = dwt_read32bitreg(SYS_STATUS_ID)) & msgReceivedFlags));
 
-	memset(rid_rx_buffer, 0, sizeof(rid_rx_buffer));
-
-	uint32_t frameLen = dwt_read32bitreg(RX_FINFO_ID) & RX_FINFO_RXFL_MASK_1023;
-	if (frameLen <= RX_BUF_LEN) {
-		dwt_readrxdata(rid_rx_buffer, frameLen, 0);
-	}
-
 	if ((statusReg & SYS_STATUS_ALL_RX_TO) != 0) {
 		print_timeout_errors(statusReg);
         dwt_write32bitreg(SYS_STATUS_ID, msgReceivedFlags);
@@ -179,7 +200,7 @@ rid_state_t perform_blink()
 
 	memset(rid_rx_buffer, 0, sizeof(rid_rx_buffer));
 
-	frameLen = dwt_read32bitreg(RX_FINFO_ID) & RX_FINFO_RXFL_MASK_1023;
+	uint32_t frameLen = dwt_read32bitreg(RX_FINFO_ID) & RX_FINFO_RXFL_MASK_1023;
 	if (frameLen <= RX_BUF_LEN) {
 		dwt_readrxdata(rid_rx_buffer, frameLen, 0);
 	}
@@ -200,10 +221,7 @@ rid_state_t perform_ranging()
 	}
 
 	receive_status_t recResult = receive_response_msg(rid_rx_buffer);
-	if (recResult == STATUS_RECEIVE_TIMEOUT) {
-		return STATE_RANGING;
-	}
-	else if (recResult == STATUS_RECEIVE_ERROR) {
+	if (recResult != STATUS_RECEIVE_OK) {
 		return STATE_RANGING;
 	}
 
@@ -213,7 +231,7 @@ rid_state_t perform_ranging()
 	}
 	else if (is_auth_request_msg(rid_rx_buffer)) {
 		stdio_write("received auth request message\r\n");
-		return STATE_AUTH_REPLY;
+		return STATE_AUTHENTICATION;
 	}
 
 	if (send_final_msg() != STATUS_SEND_OK) {
@@ -222,4 +240,82 @@ rid_state_t perform_ranging()
 	}
 
 	return STATE_RANGING;
+}
+
+rid_state_t try_authentication()
+{
+	if (init_dw1000() != DWT_SUCCESS) {
+		stdio_write("initializing dw1000 failed; spinlocking.\r\n");
+		while (1);
+	}
+
+	// for some reason, authentication won't activate without a long timeout
+	// so this step is needed to get the RID to switch to auth mode reliably.
+	dwt_setpreambledetecttimeout(5000);
+	dwt_rxenable(DWT_START_RX_IMMEDIATE);
+
+	if (receive_auth_request(rid_rx_buffer) != STATUS_RECEIVE_OK) {
+		dwt_setpreambledetecttimeout(0);
+		return STATE_RANGING;
+	}
+
+	if (is_auth_request_msg(rid_rx_buffer) == false) {
+		stdio_write("received non-auth-request message\r\n");
+		dwt_setpreambledetecttimeout(0);
+		return STATE_RANGING;
+	}
+
+	stdio_write("received auth request message\r\n");
+	return STATE_AUTHENTICATION;
+}
+
+rid_state_t perform_authentication()
+{
+	// seed initial vector for AES128 CBC encryption
+	for (int index = 0; index < 4; ++index) {
+		HAL_RNG_GenerateRandomNumber(&hrng, (uint32_t*) &iv[4*index]);
+	}
+
+	++rolling_code;
+
+	// set lower 8 bytes to the rolling code to encrypt, and also
+	// zero out the upper 8 bytes
+	memcpy(&data[0], (uint8_t*) &rolling_code, sizeof(uint64_t));
+	memset(&data[8], 0, 8);
+
+	// set initial vector for AES128 CBC encryption, then encrypt the data
+	AES_ctx_set_iv(&aes_context, &iv[0]);
+	AES_CBC_encrypt_buffer(&aes_context, &data[0], 16);
+
+	if (send_auth_reply(data, iv) != STATUS_SEND_OK) {
+		return STATE_AUTHENTICATION;
+	}
+
+	dwt_setpreambledetecttimeout(0x2000);
+	dwt_setrxtimeout(0);
+	dwt_rxenable(DWT_START_RX_IMMEDIATE);
+
+	if (receive_auth_ack(rid_rx_buffer) != STATUS_RECEIVE_OK) {
+		return STATE_AUTHENTICATION;
+	}
+
+	if (is_auth_ack_msg(rid_rx_buffer) == false) {
+		stdio_write("received non-auth-ack msg\r\n");
+		return STATE_AUTHENTICATION;
+	}
+
+	// copy out the data and initial vector, then decrypt the data
+	memcpy(&data[0], &rid_rx_buffer[AUTH_FRAME_COMMON_LEN], 16);
+	memcpy(&iv[0], &rid_rx_buffer[AUTH_FRAME_COMMON_LEN+16], 16);
+	AES_ctx_set_iv(&aes_context, &iv[0]);
+	AES_CBC_decrypt_buffer(&aes_context, &data[0], 16);
+
+	uint8_t action = data[0];
+
+	// if decrypted action is not a no-op, party time
+	if (action != 0) {
+		asm("nop");
+	}
+
+	return STATE_DISCOVERY;
 }

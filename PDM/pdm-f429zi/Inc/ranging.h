@@ -5,17 +5,7 @@
 #include <stdint.h>
 
 #include "dw_config.h"
-
-typedef enum receive_status_t {
-	STATUS_RECEIVE_OK,
-	STATUS_RECEIVE_ERROR,
-	STATUS_RECEIVE_TIMEOUT
-} receive_status_t;
-
-typedef enum send_status_t {
-	STATUS_SEND_OK,
-	STATUS_SEND_ERROR
-} send_status_t;
+#include "dw_helpers.h"
 
 bool is_poll_msg(uint8_t* buffer);
 bool is_final_msg(uint8_t* buffer);

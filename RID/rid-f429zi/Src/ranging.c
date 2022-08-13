@@ -89,6 +89,7 @@ receive_status_t receive_response_msg(uint8_t buffer[RX_BUF_LEN])
 
         dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR);
 		dwt_rxreset();
+
 		return STATUS_RECEIVE_TIMEOUT;
 	}
 	else if ((statusReg & SYS_STATUS_ALL_RX_ERR) != 0) {
