@@ -40,6 +40,18 @@ bool is_final_msg(uint8_t* buffer)
 	return (memcmp(buffer, rx_final_msg, ALL_MSG_COMMON_LEN) == 0);
 }
 
+send_status_t send_ranging_init_msg()
+{
+    dwt_writetxdata(sizeof(ranging_init_msg), ranging_init_msg, 0);
+    dwt_writetxfctrl(sizeof(ranging_init_msg), 0, 1);
+
+    if (dwt_starttx(DWT_START_TX_IMMEDIATE) != DWT_SUCCESS) {
+    	stdio_write("error: tx ranging init message failed.\r\n");
+    	return STATUS_SEND_ERROR;
+    }
+
+    return STATUS_SEND_OK;
+}
 
 receive_status_t receive_poll_msg(uint8_t buffer[RX_BUF_LEN])
 {

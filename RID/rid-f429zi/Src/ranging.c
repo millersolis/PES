@@ -54,6 +54,33 @@ bool is_rx_resp_msg(uint8_t* buffer)
 	return (memcmp(buffer, rx_resp_msg, ALL_MSG_COMMON_LEN) == 0);
 }
 
+receive_status_t receive_ranging_init_msg(uint8_t buffer[RX_BUF_LEN])
+{
+	uint32_t statusReg = 0;
+	uint32_t msgReceivedFlags = SYS_STATUS_RXFCG | SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR;
+	while (!((statusReg = dwt_read32bitreg(SYS_STATUS_ID)) & msgReceivedFlags));
+
+	if ((statusReg & SYS_STATUS_ALL_RX_TO) != 0) {
+		print_timeout_errors(statusReg);
+        dwt_write32bitreg(SYS_STATUS_ID, msgReceivedFlags);
+		return STATUS_RECEIVE_TIMEOUT;
+	}
+	else if ((statusReg & SYS_STATUS_ALL_RX_ERR) != 0) {
+		print_status_errors(statusReg);
+        dwt_write32bitreg(SYS_STATUS_ID, msgReceivedFlags);
+		return STATUS_RECEIVE_ERROR;
+	}
+
+	memset(buffer, 0, RX_BUF_LEN);
+
+	uint32_t frameLen = dwt_read32bitreg(RX_FINFO_ID) & RX_FINFO_RXFL_MASK_1023;
+	if (frameLen <= RX_BUF_LEN) {
+		dwt_readrxdata(buffer, frameLen, 0);
+	}
+
+    return STATUS_RECEIVE_OK;
+}
+
 send_status_t send_poll_msg()
 {
 	/* Write frame data to DW1000 and prepare transmission. See NOTE 8 below. */

@@ -12,6 +12,7 @@
 bool is_ranging_init_msg(uint8_t* buffer);
 bool is_rx_resp_msg(uint8_t* buffer);
 
+receive_status_t receive_ranging_init_msg(uint8_t buffer[RX_BUF_LEN]);
 send_status_t send_poll_msg();
 receive_status_t receive_response_msg(uint8_t buffer[RX_BUF_LEN]);
 send_status_t send_final_msg();
