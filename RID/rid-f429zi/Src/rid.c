@@ -42,7 +42,6 @@ int init_dw1000();
 void setup_frame_filtering();
 rid_state_t perform_blink();
 rid_state_t perform_ranging();
-rid_state_t try_authentication();
 rid_state_t perform_authentication();
 
 void rid_main()
@@ -56,7 +55,6 @@ void rid_main()
 		while (1);
 	}
 
-	uint8_t count = 0;
 	while (1) {
 		switch (state.value) {
 			case STATE_DISCOVERY:
@@ -98,13 +96,6 @@ void update_state(state_t* state, const rid_state_t value)
 
 	state->value = value;
 	state->hasChanged = true;
-
-	if (init_dw1000() != DWT_SUCCESS) {
-		stdio_write("initializing dw1000 failed; spinlocking.\r\n");
-		while (1);
-	}
-
-	dwt_setpreambledetecttimeout(0);
 }
 
 void print_state_if_changed(const state_t* state, const char str[32])
@@ -233,33 +224,6 @@ rid_state_t perform_ranging()
 	}
 
 	return STATE_RANGING;
-}
-
-rid_state_t try_authentication()
-{
-	if (init_dw1000() != DWT_SUCCESS) {
-		stdio_write("initializing dw1000 failed; spinlocking.\r\n");
-		while (1);
-	}
-
-	// for some reason, authentication won't activate without a long timeout
-	// so this step is needed to get the RID to switch to auth mode reliably.
-	dwt_setpreambledetecttimeout(5000);
-	dwt_rxenable(DWT_START_RX_IMMEDIATE);
-
-	if (receive_auth_request(rid_rx_buffer) != STATUS_RECEIVE_OK) {
-		dwt_setpreambledetecttimeout(0);
-		return STATE_RANGING;
-	}
-
-	if (is_auth_request_msg(rid_rx_buffer) == false) {
-		stdio_write("received non-auth-request message\r\n");
-		dwt_setpreambledetecttimeout(0);
-		return STATE_RANGING;
-	}
-
-	stdio_write("received auth request message\r\n");
-	return STATE_AUTHENTICATION;
 }
 
 rid_state_t perform_authentication()
