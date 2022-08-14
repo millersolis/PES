@@ -19,4 +19,6 @@ typedef struct state_t {
 
 extern uint8_t blink_msg[24];
 
+#define RNG_INIT_MAX_RX_RETRY 3
+
 #endif // RID_C

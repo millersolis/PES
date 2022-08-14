@@ -26,6 +26,7 @@
 #include "dw_config.h"
 #include "dw_helpers.h"
 #include "stdio.h"
+#include "stdio_d.h"
 #include "deca_spi.h"
 #include "port.h"
 #include "rid.h"
@@ -91,6 +92,7 @@ send_status_t send_poll_msg()
 	/* Start transmission, indicating that a response is expected so that reception is enabled automatically after the frame is sent and the delay
 	 * set by dwt_setrxaftertxdelay() has elapsed. */
 	if (dwt_starttx(DWT_START_TX_IMMEDIATE | DWT_RESPONSE_EXPECTED) != DWT_SUCCESS) {
+		stdio_write("Poll message rx error.\n\r");
 		return STATUS_SEND_ERROR;
 	}
 
