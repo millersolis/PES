@@ -21,6 +21,8 @@
 #include "can.h"
 #include "usart.h"
 #include "gpio.h"
+#include "string.h"
+#include "cjson.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -74,17 +76,42 @@ uint8_t RxData[8];
 
 uint32_t TxMailbox[4];
 
-uint8_t count = 0;
-
 char rcvData[1024];
+
+uint8_t num_of_msgs = 0;
+cJSON* json_data;
+const char* public_RID_keys[2]; // size of array should be max number of RID keys
+const char* private_RID_keys[2];
 
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
 {
 	HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &RxHeader, RxData);
 
-    strcat(rcvData, RxData);
+	if (RxHeader.StdId == 0x101)
+	{
+		num_of_msgs = RxData[0];
+	}
+	else
+	{
+		strcat(rcvData, RxData);
 
-	HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+		// Last data message
+		if (RxHeader.StdId+1 == num_of_msgs)
+		{
+			// enrollment table is an array of json objects
+			json_data = cJSON_Parse(rcvData);
+
+			for (int i = 0; i < cJSON_GetArraySize(json_data); i++) {
+				cJSON *elem = cJSON_GetArrayItem(json_data, i);
+				public_RID_keys[i] = cJSON_GetObjectItemCaseSensitive(elem, "public_RID_key")->valuestring;
+				private_RID_keys[i] = cJSON_GetObjectItemCaseSensitive(elem, "private_RID_key")->valuestring;
+			}
+
+			memset(rcvData, 0, sizeof(rcvData));
+		}
+	}
+
+    HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
 }
 
 
