@@ -32,7 +32,7 @@ class Database:
 
 class SenderReceiver:
 
-    # This function is binded to the press to start button rn
+    # This function was for testing - can be deleted
     def send_can_message(self):
         # Code to format can message data here
         # msg = can.Message(arbitration_id=0xffff, data=[10, 1, 0, 1, 3, 1, 4, 1], is_extended_id=False)
@@ -67,7 +67,7 @@ class SenderReceiver:
         json_enrollment_table = db.get_enrollment_table(sqlite_db_path, MOTORCYCLE_PDM)
         parsed_json_enrollment_table = json.loads(json_enrollment_table)
 
-        print(parsed_json_enrollment_table)
+        # print(parsed_json_enrollment_table)
         
         byte_arr_enrollment_table = json.dumps(parsed_json_enrollment_table).encode('utf-8')
         packets = [byte_arr_enrollment_table[i:i+8] for i in range (0, len(byte_arr_enrollment_table), 8)]
@@ -78,7 +78,7 @@ class SenderReceiver:
 
         arbitrationCounter = 0
         for i in range(0, len(packets)):
-            print(f"Packet: {packets[i]}, arbitrationCounter: {arbitrationCounter}")
+            # print(f"Packet: {packets[i]}, arbitrationCounter: {arbitrationCounter}")
             msg = can.Message(arbitration_id=arbitrationCounter, data=packets[i], is_extended_id=False)
             self.bus.send(msg)
             arbitrationCounter += 1
