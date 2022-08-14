@@ -1,5 +1,9 @@
 #include "rid.h"
 
+#include <time.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include "aes.h"
 #include "deca_regs.h"
 #include "dw_config.h"
 #include "dw_helpers.h"
@@ -7,102 +11,129 @@
 #include "port.h"
 #include "ranging.h"
 #include "rid_auth.h"
-#include "stdio.h"
-#include <stdbool.h>
 #include "stdio_d.h"
-#include <stdint.h>
-#include <string.h>
+
+static state_t state;
+static uint8_t rid_rx_buffer[RX_BUF_LEN] = { 0 };
+static struct AES_ctx aes_context;
+static uint8_t data[16] = { 0 };
+static uint8_t iv[16] = { 0 };
+static uint8_t symmetric_key[16] = {
+	'a', 'n', 'e', 'x', 't', 'r', 'a',
+	'b', 'o', 'r', 'i', 'n', 'g', 'k', 'e', 'y'
+};
+static uint64_t rolling_code = 0xB632F836BF96F22C;
+
+uint8_t blink_msg[24] = {
+	0x41, 0xCC,								// frame control; beacon, pan compression, and long addresses
+	0,										// sequence number; filled by sender
+	0xCA, 0xDE,								// PAN ID; default to 0xDECA
+	'P', 'D', 'M', '0', '0', '0', '0', '1',	// destination address; pdm extended identifier
+	'R', 'I', 'D', '0', '0', '0', '0', '1',	// source address; rid extended identifier
+	0x21,									// data; 0x21 is function code for blink
+	0, 0									// FCS; filled as CRC of the frame by hardware
+};
+
+void update_state(state_t* state, const rid_state_t value);
+void print_state_if_changed(const state_t* state, const char str[32]);
+void clear_and_set_led(uint16_t gpioPin);
 
 int init_dw1000();
 void setup_frame_filtering();
-void send_blink_msg();
 rid_state_t perform_blink();
-
-static rid_state_t rid_state = DISCOVERY;	// Initial state
-
-uint8 rx_buffer[RX_BUF_LEN] = { 0 };
-
+rid_state_t perform_ranging();
+rid_state_t try_authentication();
+rid_state_t perform_authentication();
 
 void rid_main()
 {
 	stdio_write("\r\nstarting RID\r\n");
-	HAL_GPIO_WritePin(GPIOB, LD1_Pin, GPIO_PIN_SET);
+
+	AES_init_ctx(&aes_context, &symmetric_key[0]);
 
 	if (init_dw1000() != DWT_SUCCESS) {
 		stdio_write("initializing dw1000 failed; spinlocking.\r\n");
 		while (1);
 	}
 
-	setup_frame_filtering();
-//	dwt_setpreambledetecttimeout(RANGING_PREAMBLE_TIMEOUT);
-	dwt_setpreambledetecttimeout(0);
-
-	uint8_t numErrors = 0;
-
-
+	uint8_t count = 0;
 	while (1) {
-//		dwt_setrxaftertxdelay(800);
-//		dwt_setrxtimeout(0xffff);
+		switch (state.value) {
+			case STATE_DISCOVERY:
+				print_state_if_changed(&state, "\r\nIn DISCOVERY\r\n");
+				clear_and_set_led(LD1_Pin);
 
-		// State Machine
-		switch(rid_state)
-		{
-			case DISCOVERY:
-				stdio_write("\r\nIn DISCOVERY\r\n");
-				HAL_GPIO_WritePin(GPIOB, LD1_Pin, GPIO_PIN_RESET);
+				dwt_setrxaftertxdelay(800);
+				dwt_setrxtimeout(0xffff);
+				dwt_setpreambledetecttimeout(RANGING_PREAMBLE_TIMEOUT);
 
-				rid_state = perform_blink();
+				update_state(&state, perform_blink());
+				HAL_Delay(100);
 				break;
 
-			case POLL:
-				stdio_write("\r\nIn POLL\r\n");
-				HAL_GPIO_WritePin(GPIOB, LD2_Pin, GPIO_PIN_SET);
+			case STATE_RANGING:
+				print_state_if_changed(&state, "\r\nIn RANGING\r\n");
+				clear_and_set_led(LD2_Pin);
 
-				rid_state = init_ranging();
-				break;
+				dwt_setrxaftertxdelay(POLL_TX_TO_RESP_RX_DLY_UUS);
+				dwt_setrxtimeout(RESP_RX_TIMEOUT_UUS);
 
-			case RANGING_FINAL:
-				stdio_write("\r\nIn RANGING_FINAL\r\n");
-				HAL_GPIO_WritePin(GPIOB, LD2_Pin, GPIO_PIN_RESET);
-
-				rid_state = POLL;
-
-				if (send_ranging_final_msg() != DWT_SUCCESS) {
-					// Check for max errors in ranging
-					if (numErrors >= 5) {
-						stdio_write("WARNING: Exiting ranging due to excessive errors\r\n");
-						rid_state = DISCOVERY;
-
-						// Reset ranging error count
-						numErrors = 0;
-					}
-					else {
-						++numErrors;
-					}
+				++count;
+				if (count >= 10) {
+					update_state(&state, try_authentication());
+					count = 0;
 				}
+				else {
+					update_state(&state, perform_ranging());
+				}
+				HAL_Delay(MIN_DELAY_RANGING);
 				break;
 
-			case AUTH_REPLY:
-				stdio_write("\r\nIn AUTH_REPLY\r\n");
-				HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_SET);
+			case STATE_AUTHENTICATION:
+				print_state_if_changed(&state, "\r\nIn AUTHENTICATION\r\n");
+				clear_and_set_led(LD3_Pin);
 
-				// do auth here
-				print_auth_request_msg(rx_buffer);
-
-
-				rid_state = DISCOVERY;	// DEBUG
-				HAL_Delay(2000);	//DEBUG
-
-				HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_RESET);
+				update_state(&state, perform_authentication());
 				break;
-
-			default:
-				// default state
-				stdio_write("\r\nWARNING: In default state\r\n");
-				rid_state = DISCOVERY;
 		}
-//		HAL_Delay(500);
 	}
+}
+
+void update_state(state_t* state, const rid_state_t value)
+{
+	if (state->value == value) {
+		state->hasChanged = 0;
+		return;
+	}
+
+	state->value = value;
+	state->hasChanged = true;
+
+	if (init_dw1000() != DWT_SUCCESS) {
+		stdio_write("initializing dw1000 failed; spinlocking.\r\n");
+		while (1);
+	}
+
+	dwt_setpreambledetecttimeout(0);
+}
+
+void print_state_if_changed(const state_t* state, const char str[32])
+{
+	// if state is unchanged, don't print a new state value
+	if (state->hasChanged == false) {
+		return;
+	}
+
+	stdio_write(str);
+}
+
+void clear_and_set_led(uint16_t gpioPin)
+{
+	HAL_GPIO_WritePin(GPIOB, LD1_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(GPIOB, LD2_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_RESET);
+
+	HAL_GPIO_WritePin(GPIOB, gpioPin, GPIO_PIN_SET);
 }
 
 int init_dw1000()
@@ -123,6 +154,8 @@ int init_dw1000()
     dwt_setrxantennadelay(RX_ANT_DLY);
     dwt_settxantennadelay(TX_ANT_DLY);
 
+	setup_frame_filtering();
+
     return DWT_SUCCESS;
 }
 
@@ -141,12 +174,13 @@ void setup_frame_filtering()
 
 rid_state_t perform_blink()
 {
-	dwt_setrxtimeout(DISCOVERY_RESP_TO_UUS);
-//	dwt_setrxtimeout(0);
+    dwt_writetxdata(sizeof(blink_msg), blink_msg, 0);
+    dwt_writetxfctrl(sizeof(blink_msg), 0, 1);
 
-	send_blink_msg();
-
-	rid_state_t next_state = DISCOVERY;
+    if (dwt_starttx(DWT_START_TX_IMMEDIATE | DWT_RESPONSE_EXPECTED) != DWT_SUCCESS) {
+    	stdio_write("error: tx blink message failed.\r\n");
+    	return STATE_DISCOVERY;
+    }
 
 	// poll for ranging init
 	uint32_t statusReg = 0;
@@ -155,50 +189,133 @@ rid_state_t perform_blink()
 
 	if ((statusReg & SYS_STATUS_ALL_RX_TO) != 0) {
 		print_timeout_errors(statusReg);
-
-        /* Clear good RX frame event in the DW1000 status register. */
         dwt_write32bitreg(SYS_STATUS_ID, msgReceivedFlags);
+		return STATE_DISCOVERY;
 	}
 	else if ((statusReg & SYS_STATUS_ALL_RX_ERR) != 0) {
 		print_status_errors(statusReg);
-
-        /* Clear good RX frame event in the DW1000 status register. */
         dwt_write32bitreg(SYS_STATUS_ID, msgReceivedFlags);
-	}
-	else {
-		memset(rx_buffer, 0, sizeof(rx_buffer));
-
-		uint32 frameLen;
-		frameLen = dwt_read32bitreg(RX_FINFO_ID) & RX_FINFO_RXFL_MASK_1023;
-		if (frameLen <= RX_BUF_LEN) {
-			dwt_readrxdata(rx_buffer, frameLen, 0);
-		}
-
-		if (is_ranging_init_msg(rx_buffer)) {
-			stdio_write("received ranging-init message\r\n");
-			next_state = POLL;
-		}
-		else if (is_auth_request_msg(rx_buffer)) {
-			stdio_write("received auth request message\r\n");
-			next_state = AUTH_REPLY;
-		}
-		else {
-			stdio_write("received non-ranging-init or non-auth-request message\r\n");
-		}
+		return STATE_DISCOVERY;
 	}
 
-    return next_state;
+	memset(rid_rx_buffer, 0, sizeof(rid_rx_buffer));
+
+	uint32_t frameLen = dwt_read32bitreg(RX_FINFO_ID) & RX_FINFO_RXFL_MASK_1023;
+	if (frameLen <= RX_BUF_LEN) {
+		dwt_readrxdata(rid_rx_buffer, frameLen, 0);
+	}
+
+	rid_rx_buffer[2] = 0;
+	if (memcmp(rid_rx_buffer, ranging_init_msg, RANGING_INIT_MSG_COMMON_LEN) != 0) {
+		stdio_write("received non-ranging-init message\r\n");
+		return STATE_DISCOVERY;
+	}
+
+    return STATE_RANGING;
 }
 
-void send_blink_msg()
+rid_state_t perform_ranging()
 {
-	/* Write frame data to DW1000 and prepare transmission. See NOTE 7 below. */
-	dwt_writetxdata(sizeof(blink_msg), blink_msg, 0); /* Zero offset in TX buffer. */
-	dwt_writetxfctrl(sizeof(blink_msg), 0, 0); /* Zero offset in TX buffer, no ranging. */
+	if (send_poll_msg() != STATUS_SEND_OK) {
+		return STATE_RANGING;
+	}
 
-	/* Start transmission, indicating that a response is expected so that reception is enabled immediately after the frame is sent. */
-    if (dwt_starttx(DWT_START_TX_IMMEDIATE | DWT_RESPONSE_EXPECTED) != DWT_SUCCESS) {
-    	stdio_write("ERROR: Sending blink message failed.\r\n");
-    }
+	receive_status_t recResult = receive_response_msg(rid_rx_buffer);
+	if (recResult != STATUS_RECEIVE_OK) {
+		return STATE_RANGING;
+	}
+
+	if (is_ranging_init_msg(rid_rx_buffer)) {
+		stdio_write("received ranging init message\r\n");
+		return STATE_RANGING;
+	}
+	else if (is_auth_request_msg(rid_rx_buffer)) {
+		stdio_write("received auth request message\r\n");
+		return STATE_AUTHENTICATION;
+	}
+
+	if (send_final_msg() != STATUS_SEND_OK) {
+		stdio_write("failed to send ranging final message\r\n");
+		return STATE_RANGING;
+	}
+
+	return STATE_RANGING;
 }
 
+rid_state_t try_authentication()
+{
+	if (init_dw1000() != DWT_SUCCESS) {
+		stdio_write("initializing dw1000 failed; spinlocking.\r\n");
+		while (1);
+	}
+
+	// for some reason, authentication won't activate without a long timeout
+	// so this step is needed to get the RID to switch to auth mode reliably.
+	dwt_setpreambledetecttimeout(5000);
+	dwt_rxenable(DWT_START_RX_IMMEDIATE);
+
+	if (receive_auth_request(rid_rx_buffer) != STATUS_RECEIVE_OK) {
+		dwt_setpreambledetecttimeout(0);
+		return STATE_RANGING;
+	}
+
+	if (is_auth_request_msg(rid_rx_buffer) == false) {
+		stdio_write("received non-auth-request message\r\n");
+		dwt_setpreambledetecttimeout(0);
+		return STATE_RANGING;
+	}
+
+	stdio_write("received auth request message\r\n");
+	return STATE_AUTHENTICATION;
+}
+
+rid_state_t perform_authentication()
+{
+	// seed initial vector for AES128 CBC encryption
+	for (int index = 0; index < 4; ++index) {
+		HAL_RNG_GenerateRandomNumber(&hrng, (uint32_t*) &iv[4*index]);
+	}
+
+	++rolling_code;
+
+	// set lower 8 bytes to the rolling code to encrypt, and also
+	// zero out the upper 8 bytes
+	memcpy(&data[0], (uint8_t*) &rolling_code, sizeof(uint64_t));
+	memset(&data[8], 0, 8);
+
+	// set initial vector for AES128 CBC encryption, then encrypt the data
+	AES_ctx_set_iv(&aes_context, &iv[0]);
+	AES_CBC_encrypt_buffer(&aes_context, &data[0], 16);
+
+	if (send_auth_reply(data, iv) != STATUS_SEND_OK) {
+		return STATE_AUTHENTICATION;
+	}
+
+	dwt_setpreambledetecttimeout(0x2000);
+	dwt_setrxtimeout(0);
+	dwt_rxenable(DWT_START_RX_IMMEDIATE);
+
+	if (receive_auth_ack(rid_rx_buffer) != STATUS_RECEIVE_OK) {
+		return STATE_AUTHENTICATION;
+	}
+
+	if (is_auth_ack_msg(rid_rx_buffer) == false) {
+		stdio_write("received non-auth-ack msg\r\n");
+		return STATE_AUTHENTICATION;
+	}
+
+	// copy out the data and initial vector, then decrypt the data
+	memcpy(&data[0], &rid_rx_buffer[AUTH_FRAME_COMMON_LEN], 16);
+	memcpy(&iv[0], &rid_rx_buffer[AUTH_FRAME_COMMON_LEN+16], 16);
+	AES_ctx_set_iv(&aes_context, &iv[0]);
+	AES_CBC_decrypt_buffer(&aes_context, &data[0], 16);
+
+	uint8_t action = data[0];
+
+	// if decrypted action is not a no-op, party time
+	if (action != 0) {
+		asm("nop");
+	}
+
+	return STATE_DISCOVERY;
+}

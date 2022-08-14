@@ -6,6 +6,17 @@
 extern void print_timeout_errors(uint32_t statusRegister);
 extern void print_status_errors(uint32_t statusRegister);
 
+typedef enum receive_status_t {
+	STATUS_RECEIVE_OK,
+	STATUS_RECEIVE_ERROR,
+	STATUS_RECEIVE_TIMEOUT
+} receive_status_t;
+
+typedef enum send_status_t {
+	STATUS_SEND_OK,
+	STATUS_SEND_ERROR
+} send_status_t;
+
 typedef enum {
 	FRAME_TYPE_BEACON,
 	FRAME_TYPE_DATA,
