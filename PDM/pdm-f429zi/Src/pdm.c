@@ -1,10 +1,13 @@
 #include "pdm.h"
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
 #include "aes.h"
 #include "deca_regs.h"
 #include "dw_config.h"
 #include "dw_helpers.h"
+#include "dw_utils.h"
 #include "main.h"
 #include "pdm_can.h"
 #include "pdm_auth.h"
@@ -41,9 +44,10 @@ pdm_state_t receive_blink();
 pdm_state_t perform_ranging();
 pdm_state_t perform_authentication();
 ecu_action_t check_ecu_action();
-void perform_action_on_bike(const ecu_action_t action);
+bool perform_action_on_bike(ecu_action_t action);
 
 static uint8_t numNoOps = 0;
+static uint8_t poll_rx_retry_counter = 0;
 static double distance = 0.0;
 static double prevDistance = 0.0;
 static ecu_action_t nextAction =  NO_OP;
@@ -96,7 +100,6 @@ void pdm_main()
     			clear_and_set_led(LD3_Pin);
 
     			update_state(&state, perform_authentication());
-    			HAL_Delay(1000);
     			break;
     	}
     }
@@ -213,6 +216,16 @@ pdm_state_t receive_blink()
 	return STATE_RANGING;
 }
 
+bool retry_poll_rx() {
+	if (poll_rx_retry_counter < POLL_MAX_RX_RETRY) {
+		++poll_rx_retry_counter;
+		return true;
+	}
+
+	poll_rx_retry_counter = 0;
+	return false;
+}
+
 pdm_state_t perform_ranging()
 {
 	if (send_ranging_init_msg() != STATUS_SEND_OK) {
@@ -221,27 +234,57 @@ pdm_state_t perform_ranging()
 	}
 
 	dwt_setrxtimeout(0);
-	dwt_setpreambledetecttimeout(100);
+	dwt_setpreambledetecttimeout(1000);
 	dwt_rxenable(DWT_START_RX_IMMEDIATE);
 
-	if (receive_poll_msg(pdm_rx_buffer) != STATUS_RECEIVE_OK) {
-		return STATE_RANGING;
+	// Receive Poll
+	receive_status_t rx_status = receive_msg(pdm_rx_buffer);
+	switch (rx_status) {
+
+		case STATUS_RECEIVE_OK:
+			break;
+
+		case STATUS_RECEIVE_ERROR:
+			stdio_write("DEBUG: error on rx poll message\r\n");
+			return STATE_RANGING;
+
+		case STATUS_RECEIVE_TIMEOUT:
+			stdio_write("DEBUG: timeout on rx poll message\r\n");
+			if (retry_poll_rx()) {
+				return STATE_RANGING;
+			}
+			// Retrying anyways since there is always one error in the first rx poll
+			//return STATE_DISCOVERY;
+			return STATE_RANGING;
 	}
 
-	if (is_poll_msg(pdm_rx_buffer) == false) {
+	if (!is_poll_msg(pdm_rx_buffer)) {
 		stdio_write("received non-poll message\r\n");
-		return STATE_RANGING;
+		return STATE_DISCOVERY;
 	}
 
 	if (send_response_msg() != STATUS_SEND_OK) {
 		return STATE_RANGING;
 	}
 
-	if (receive_final_msg(pdm_rx_buffer) != STATUS_RECEIVE_OK) {
-		return STATE_RANGING;
+	// Receive Ranging Final
+	rx_status = receive_msg(pdm_rx_buffer);
+	switch (rx_status) {
+
+		case STATUS_RECEIVE_OK:
+			break;
+
+		case STATUS_RECEIVE_ERROR:
+			stdio_write("DEBUG: error on rx rng final message\r\n");
+			return STATE_RANGING;
+
+		case STATUS_RECEIVE_TIMEOUT:
+			stdio_write("DEBUG: timeout on rx rng final message\r\n");
+			return STATE_RANGING;
 	}
 
-	if (is_final_msg(pdm_rx_buffer) == false) {
+
+	if (!is_final_msg(pdm_rx_buffer)) {
 		stdio_write("received non-final message\r\n");
 		return STATE_RANGING;
 	}
@@ -263,9 +306,8 @@ pdm_state_t perform_ranging()
 		return STATE_RANGING;
 	}
 
+	// DEBUG: Triggering action for testing
 	nextAction = WAKEUP;
-	perform_action_on_bike(nextAction);
-
 	return STATE_AUTHENTICATION;
 }
 
@@ -316,22 +358,23 @@ pdm_state_t perform_authentication()
 	AES_ctx_set_iv(&aes_context, &iv[0]);
 	AES_CBC_encrypt_buffer(&aes_context, &data[0], 16);
 
-	if (send_auth_ack(data, iv) != STATUS_SEND_OK) {
-		return STATE_AUTHENTICATION;
-	}
-
 	HAL_Delay(PDM_LOOP_DELAY);
-	if (send_can_message() != CAN_OK) {
-		stdio_write("canbad\r\n");
-		return STATE_AUTHENTICATION;
-	}
-	stdio_write("cangood\r\n");
 
-	return STATE_DISCOVERY;
+	if (perform_action_on_bike(nextAction) && (send_auth_ack(data, iv) == STATUS_SEND_OK)) {
+		return STATE_DISCOVERY;
+	}
+
+	return STATE_AUTHENTICATION;
 }
 
 ecu_action_t check_ecu_action()
 {
+	uint8_t distance_diff = abs(prevDistance - distance);
+
+	if (distance_diff < SENSITIVITY_THRESHOLD) {
+		return NO_OP;
+	}
+
 	if (prevDistance >= 1.0 && distance < 1.0) {
 		return WAKEUP;
 	}
@@ -343,11 +386,21 @@ ecu_action_t check_ecu_action()
 	return NO_OP;
 }
 
-void perform_action_on_bike(const ecu_action_t action) {
+bool perform_action_on_bike(ecu_action_t action) {
 	if (action == WAKEUP) {
 		stdio_write("got wakeup signal\r\n");
 	}
 	else if (action == LOCK) {
 		stdio_write("got lock signal\r\n");
 	}
+
+#ifdef SIM_CONNECTED
+	if (send_can_message() != CAN_OK) {
+		stdio_write("CAN Tx error\r\n");
+		return false;
+	}
+	stdio_write("CAN Tx successful\r\n");
+#endif
+
+	return true;
 }

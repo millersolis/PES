@@ -64,6 +64,7 @@ receive_status_t receive_poll_msg(uint8_t buffer[RX_BUF_LEN])
 
 	if ((statusReg & SYS_STATUS_ALL_RX_TO) != 0) {
 		print_timeout_errors(statusReg);
+		stdio_write("error: rx poll message failed.\r\n");
 
         dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR);
 		dwt_rxreset();
@@ -131,6 +132,7 @@ receive_status_t receive_final_msg(uint8_t buffer[RX_BUF_LEN])
 
 	if ((statusReg & SYS_STATUS_ALL_RX_TO) != 0) {
 		print_timeout_errors(statusReg);
+		stdio_write("error: rx ranging final message failed.\r\n");
 
         dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR);
 		dwt_rxreset();

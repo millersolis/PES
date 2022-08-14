@@ -82,6 +82,7 @@ receive_status_t receive_auth_reply(uint8_t buffer[RX_BUF_LEN])
 
 	if ((statusReg & SYS_STATUS_ALL_RX_TO) != 0) {
 		print_timeout_errors(statusReg);
+		stdio_write("error: rx auth reply message timeout.\r\n");
 
         dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR);
 		dwt_rxreset();

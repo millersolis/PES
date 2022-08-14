@@ -3,10 +3,12 @@
 #include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include "aes.h"
 #include "deca_regs.h"
 #include "dw_config.h"
 #include "dw_helpers.h"
+#include "dw_utils.h"
 #include "main.h"
 #include "port.h"
 #include "ranging.h"
@@ -23,6 +25,7 @@ static uint8_t symmetric_key[16] = {
 	'b', 'o', 'r', 'i', 'n', 'g', 'k', 'e', 'y'
 };
 static uint64_t rolling_code = 0xB632F836BF96F22C;
+static uint8_t rng_init_rx_retry_counter = 0;
 
 uint8_t blink_msg[24] = {
 	0x41, 0xCC,								// frame control; beacon, pan compression, and long addresses
@@ -74,7 +77,6 @@ void rid_main()
 				clear_and_set_led(LD2_Pin);
 
 				update_state(&state, perform_ranging());
-				HAL_Delay(MIN_DELAY_RANGING);
 				break;
 
 			case STATE_AUTHENTICATION:
@@ -175,6 +177,16 @@ rid_state_t perform_blink()
     return STATE_RANGING;
 }
 
+bool retry_ranging_init_rx() {
+	if (rng_init_rx_retry_counter < RNG_INIT_MAX_RX_RETRY) {
+		++rng_init_rx_retry_counter;
+		return true;
+	}
+
+	rng_init_rx_retry_counter = 0;
+	return false;
+}
+
 rid_state_t perform_ranging()
 {
 	dwt_setrxtimeout(0);
@@ -185,11 +197,12 @@ rid_state_t perform_ranging()
 		return STATE_RANGING;
 	}
 
-	if (is_auth_request_msg(rid_rx_buffer) == true) {
+
+	if (is_auth_request_msg(rid_rx_buffer)) {
 		stdio_write("received auth request message\r\n");
 		return STATE_AUTHENTICATION;
 	}
-	else if (is_ranging_init_msg(rid_rx_buffer) == false) {
+	else if (!is_ranging_init_msg(rid_rx_buffer)) {
 		stdio_write("received non-ranging-init message\r\n");
 		return STATE_RANGING;
 	}
@@ -245,8 +258,6 @@ rid_state_t perform_authentication()
 		HAL_RNG_GenerateRandomNumber(&hrng, (uint32_t*) &iv[4*index]);
 	}
 
-	++rolling_code;
-
 	// set lower 8 bytes to the rolling code to encrypt, and also
 	// zero out the upper 8 bytes
 	memcpy(&data[0], (uint8_t*) &rolling_code, sizeof(uint64_t));
@@ -286,5 +297,6 @@ rid_state_t perform_authentication()
 		asm("nop");
 	}
 
+	++rolling_code;
 	return STATE_DISCOVERY;
 }

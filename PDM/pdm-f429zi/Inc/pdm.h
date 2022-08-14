@@ -4,9 +4,11 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+//#define SIM_CONNECTED
+
 extern void pdm_main();
 
-typedef enum rid_state_t {
+typedef enum pdm_state_t {
 	STATE_DISCOVERY,
 	STATE_RANGING,
 	STATE_AUTHENTICATION
@@ -27,5 +29,8 @@ static uint8_t blink_msg[] = {
 	0x21,									// data; 0x21 is function code for blink
 	0, 0									// FCS; filled as CRC of the frame by hardware
 };
+
+#define POLL_MAX_RX_RETRY 3
+#define SENSITIVITY_THRESHOLD 0.2	// in meters
 
 #endif // PDM_H
