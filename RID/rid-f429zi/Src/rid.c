@@ -77,7 +77,6 @@ void rid_main()
 				clear_and_set_led(LD2_Pin);
 
 				update_state(&state, perform_ranging());
-//				HAL_Delay(MIN_DELAY_RANGING);
 				break;
 
 			case STATE_AUTHENTICATION:
@@ -193,25 +192,6 @@ rid_state_t perform_ranging()
 	dwt_setrxtimeout(0);
 	dwt_setpreambledetecttimeout(0xf000);
 	dwt_rxenable(DWT_START_RX_IMMEDIATE);
-
-	// Receive Ranging Init
-//	receive_status_t rx_status = receive_msg(rid_rx_buffer);
-//	switch (rx_status) {
-//
-//		case STATUS_RECEIVE_OK:
-//			break;
-//
-//		case STATUS_RECEIVE_ERROR:
-//			stdio_write("DEBUG: error on rx rng init message\r\n");
-//			return STATE_RANGING;
-//
-//		case STATUS_RECEIVE_TIMEOUT:
-//			stdio_write("DEBUG: timeout on rx rng init message\r\n");
-//			if (retry_ranging_init_rx()) {
-//				return STATE_RANGING;
-//			}
-//			return STATE_DISCOVERY;
-//	}
 
 	if (receive_ranging_init_msg(rid_rx_buffer) != STATUS_RECEIVE_OK) {
 		return STATE_RANGING;

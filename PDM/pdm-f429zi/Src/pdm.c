@@ -100,7 +100,6 @@ void pdm_main()
     			clear_and_set_led(LD3_Pin);
 
     			update_state(&state, perform_authentication());
-//    			HAL_Delay(1000);
     			break;
     	}
     }
@@ -395,12 +394,13 @@ bool perform_action_on_bike(ecu_action_t action) {
 		stdio_write("got lock signal\r\n");
 	}
 
+#ifdef SIM_CONNECTED
 	if (send_can_message() != CAN_OK) {
-		stdio_write("canbad\r\n");
-//		return false;
-		return true;	//CAN not connected to PDM atm
+		stdio_write("CAN Tx error\r\n");
+		return false;
 	}
+	stdio_write("CAN Tx successful\r\n");
+#endif
 
-	stdio_write("cangood\r\n");
 	return true;
 }

@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+//#define SIM_CONNECTED
+
 extern void pdm_main();
 
 typedef enum pdm_state_t {
