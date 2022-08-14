@@ -39,7 +39,6 @@ int init_dw1000();
 void setup_frame_filtering();
 pdm_state_t receive_blink();
 pdm_state_t perform_ranging();
-pdm_state_t flood_auth();
 pdm_state_t perform_authentication();
 ecu_action_t check_ecu_action();
 void perform_action_on_bike(const ecu_action_t action);
@@ -88,19 +87,9 @@ void pdm_main()
 					numNoOps = 0;
 				}
 
-				dwt_setrxtimeout(0);
-				dwt_rxenable(DWT_START_RX_IMMEDIATE);
-
 				update_state(&state, perform_ranging());
 				HAL_Delay(PDM_LOOP_DELAY);
     			break;
-
-    		case STATE_FLOOD_AUTH:
-    			print_state_if_changed(&state, "\r\nIn FLOOD AUTH\r\n");
-    			clear_and_set_led(LD3_Pin);
-
-				update_state(&state, flood_auth());
-				break;
 
     		case STATE_AUTHENTICATION:
     			print_state_if_changed(&state, "\r\nIn AUTHENTICATION\r\n");
@@ -216,19 +205,25 @@ pdm_state_t receive_blink()
 		return STATE_DISCOVERY;
 	}
 
-    dwt_writetxdata(sizeof(ranging_init_msg), ranging_init_msg, 0);
-    dwt_writetxfctrl(sizeof(ranging_init_msg), 0, 1);
-
-    if (dwt_starttx(DWT_START_TX_IMMEDIATE) != DWT_SUCCESS) {
-    	stdio_write("error: tx ranging init message failed.\r\n");
-    	return STATE_DISCOVERY;
-    }
+	if (send_ranging_init_msg() != STATUS_SEND_OK) {
+		stdio_write("failed to send ranging init\r\n");
+		return STATE_DISCOVERY;
+	}
 
 	return STATE_RANGING;
 }
 
 pdm_state_t perform_ranging()
 {
+	if (send_ranging_init_msg() != STATUS_SEND_OK) {
+		stdio_write("failed to send ranging init\r\n");
+		return STATE_RANGING;
+	}
+
+	dwt_setrxtimeout(0);
+	dwt_setpreambledetecttimeout(100);
+	dwt_rxenable(DWT_START_RX_IMMEDIATE);
+
 	if (receive_poll_msg(pdm_rx_buffer) != STATUS_RECEIVE_OK) {
 		return STATE_RANGING;
 	}
@@ -271,34 +266,16 @@ pdm_state_t perform_ranging()
 	nextAction = WAKEUP;
 	perform_action_on_bike(nextAction);
 
-	return STATE_FLOOD_AUTH;
-}
-
-pdm_state_t flood_auth()
-{
-	if (send_auth_request() != STATUS_SEND_OK) {
-		return STATE_FLOOD_AUTH;
-	}
-
-	dwt_setpreambledetecttimeout(0x0fff);
-	dwt_setrxtimeout(0);
-	dwt_rxenable(DWT_START_RX_IMMEDIATE);
-
-	if (receive_auth_reply(pdm_rx_buffer) != STATUS_RECEIVE_OK) {
-		return STATE_FLOOD_AUTH;
-	}
-
-	if (is_auth_reply_msg(pdm_rx_buffer) == false) {
-		stdio_write("received non-auth-reply message\r\n");
-		return STATE_FLOOD_AUTH;
-	}
-
 	return STATE_AUTHENTICATION;
 }
 
 pdm_state_t perform_authentication()
 {
-	dwt_setpreambledetecttimeout(0);
+	if (send_auth_request() != STATUS_SEND_OK) {
+		return STATE_AUTHENTICATION;
+	}
+
+	dwt_setpreambledetecttimeout(100);
 	dwt_setrxtimeout(0);
 	dwt_rxenable(DWT_START_RX_IMMEDIATE);
 

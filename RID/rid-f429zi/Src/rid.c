@@ -75,17 +75,7 @@ void rid_main()
 				print_state_if_changed(&state, "\r\nIn RANGING\r\n");
 				clear_and_set_led(LD2_Pin);
 
-				dwt_setrxaftertxdelay(POLL_TX_TO_RESP_RX_DLY_UUS);
-				dwt_setrxtimeout(RESP_RX_TIMEOUT_UUS);
-
-				++count;
-				if (count >= 10) {
-					update_state(&state, try_authentication());
-					count = 0;
-				}
-				else {
-					update_state(&state, perform_ranging());
-				}
+				update_state(&state, perform_ranging());
 				HAL_Delay(MIN_DELAY_RANGING);
 				break;
 
@@ -182,40 +172,43 @@ rid_state_t perform_blink()
     	return STATE_DISCOVERY;
     }
 
-	// poll for ranging init
-	uint32_t statusReg = 0;
-	uint32_t msgReceivedFlags = SYS_STATUS_RXFCG | SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR;
-	while (!((statusReg = dwt_read32bitreg(SYS_STATUS_ID)) & msgReceivedFlags));
+    if (receive_ranging_init_msg(rid_rx_buffer) != STATUS_RECEIVE_OK) {
+    	return STATE_DISCOVERY;
+    }
 
-	if ((statusReg & SYS_STATUS_ALL_RX_TO) != 0) {
-		print_timeout_errors(statusReg);
-        dwt_write32bitreg(SYS_STATUS_ID, msgReceivedFlags);
-		return STATE_DISCOVERY;
-	}
-	else if ((statusReg & SYS_STATUS_ALL_RX_ERR) != 0) {
-		print_status_errors(statusReg);
-        dwt_write32bitreg(SYS_STATUS_ID, msgReceivedFlags);
-		return STATE_DISCOVERY;
-	}
-
-	memset(rid_rx_buffer, 0, sizeof(rid_rx_buffer));
-
-	uint32_t frameLen = dwt_read32bitreg(RX_FINFO_ID) & RX_FINFO_RXFL_MASK_1023;
-	if (frameLen <= RX_BUF_LEN) {
-		dwt_readrxdata(rid_rx_buffer, frameLen, 0);
-	}
-
-	rid_rx_buffer[2] = 0;
-	if (memcmp(rid_rx_buffer, ranging_init_msg, RANGING_INIT_MSG_COMMON_LEN) != 0) {
+    if (is_ranging_init_msg(rid_rx_buffer) == false) {
 		stdio_write("received non-ranging-init message\r\n");
 		return STATE_DISCOVERY;
-	}
+    }
 
     return STATE_RANGING;
 }
 
 rid_state_t perform_ranging()
 {
+	dwt_setrxtimeout(0);
+	dwt_setpreambledetecttimeout(0xf000);
+	dwt_rxenable(DWT_START_RX_IMMEDIATE);
+
+	if (receive_ranging_init_msg(rid_rx_buffer) != STATUS_RECEIVE_OK) {
+		return STATE_RANGING;
+	}
+
+	if (is_auth_request_msg(rid_rx_buffer) == true) {
+		stdio_write("received auth request message\r\n");
+		return STATE_AUTHENTICATION;
+	}
+	else if (is_ranging_init_msg(rid_rx_buffer) == false) {
+		stdio_write("received non-ranging-init message\r\n");
+		return STATE_RANGING;
+	}
+
+	// manually force back to idle mode so the rest of ranging works
+	dwt_forcetrxoff();
+
+	dwt_setrxaftertxdelay(POLL_TX_TO_RESP_RX_DLY_UUS);
+	dwt_setrxtimeout(RESP_RX_TIMEOUT_UUS);
+
 	if (send_poll_msg() != STATUS_SEND_OK) {
 		return STATE_RANGING;
 	}
@@ -271,6 +264,18 @@ rid_state_t try_authentication()
 
 rid_state_t perform_authentication()
 {
+	dwt_setpreambledetecttimeout(5000);
+	dwt_rxenable(DWT_START_RX_IMMEDIATE);
+
+	if (receive_auth_request(rid_rx_buffer) != STATUS_RECEIVE_OK) {
+		return STATE_AUTHENTICATION;
+	}
+
+	if (is_auth_request_msg(rid_rx_buffer) == false) {
+		stdio_write("received non-auth-request message\r\n");
+		return STATE_AUTHENTICATION;
+	}
+
 	// seed initial vector for AES128 CBC encryption
 	for (int index = 0; index < 4; ++index) {
 		HAL_RNG_GenerateRandomNumber(&hrng, (uint32_t*) &iv[4*index]);
@@ -291,7 +296,7 @@ rid_state_t perform_authentication()
 		return STATE_AUTHENTICATION;
 	}
 
-	dwt_setpreambledetecttimeout(0x2000);
+	dwt_setpreambledetecttimeout(0x4000);
 	dwt_setrxtimeout(0);
 	dwt_rxenable(DWT_START_RX_IMMEDIATE);
 

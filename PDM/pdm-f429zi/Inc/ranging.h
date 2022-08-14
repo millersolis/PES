@@ -12,6 +12,7 @@ bool is_final_msg(uint8_t* buffer);
 
 int try_ranging(double* distance);
 
+send_status_t send_ranging_init_msg();
 receive_status_t receive_poll_msg(uint8_t buffer[RX_BUF_LEN]);
 send_status_t send_response_msg();
 receive_status_t receive_final_msg(uint8_t buffer[RX_BUF_LEN]);
