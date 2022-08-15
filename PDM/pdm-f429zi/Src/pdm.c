@@ -28,12 +28,6 @@ static uint8_t symmetric_key[16] = {
 };
 static uint64_t rolling_code = 0xB632F836BF96F22C;
 
-typedef enum {
-	NO_OP,
-	WAKEUP,
-	LOCK
-} ecu_action_t;
-
 void update_state(state_t* state, const pdm_state_t value);
 void print_state_if_changed(const state_t* state, const char str[32]);
 void clear_and_set_led(uint16_t gpioPin);
@@ -49,7 +43,7 @@ bool perform_action_on_bike(ecu_action_t action);
 static uint8_t numNoOps = 0;
 static uint8_t poll_rx_retry_counter = 0;
 static double distance = 0.0;
-static double prevDistance = 0.0;
+static double prevDistance = 200.0;	// Assumme the RID is coming out of range
 static ecu_action_t nextAction =  NO_OP;
 
 void pdm_main()
@@ -289,6 +283,7 @@ pdm_state_t perform_ranging()
 		return STATE_RANGING;
 	}
 
+	prevDistance = distance;
 	distance = retrieve_ranging_result(pdm_rx_buffer);
 
 	/* Display computed distance. */
@@ -298,6 +293,12 @@ pdm_state_t perform_ranging()
 
 	nextAction = check_ecu_action();
 
+#ifdef SIM_CONNECTED
+	if (nextAction == NO_OP) {
+		return STATE_RANGING;
+	}
+#else
+	// DEBUG: Triggering action periodically for testing
 	if (nextAction == NO_OP) {
 		++(numNoOps);
 	}
@@ -306,8 +307,9 @@ pdm_state_t perform_ranging()
 		return STATE_RANGING;
 	}
 
-	// DEBUG: Triggering action for testing
 	nextAction = WAKEUP;
+#endif
+
 	return STATE_AUTHENTICATION;
 }
 
@@ -371,31 +373,35 @@ ecu_action_t check_ecu_action()
 {
 	uint8_t distance_diff = abs(prevDistance - distance);
 
-	if (distance_diff < SENSITIVITY_THRESHOLD) {
+	if (distance_diff > SENSITIVITY_THRESHOLD) {
 		return NO_OP;
 	}
 
-	if (prevDistance >= 1.0 && distance < 1.0) {
+	if (prevDistance >= FENCING_THRESHOLD && distance < FENCING_THRESHOLD) {
 		return WAKEUP;
 	}
-
-	if (prevDistance <= 1.0 && distance > 1.0) {
+	else if (prevDistance <= FENCING_THRESHOLD && distance > FENCING_THRESHOLD) {
 		return LOCK;
 	}
 
 	return NO_OP;
 }
 
-bool perform_action_on_bike(ecu_action_t action) {
+bool perform_action_on_bike(ecu_action_t action)
+{
+
 	if (action == WAKEUP) {
-		stdio_write("got wakeup signal\r\n");
+		stdio_write("got WAKEUP signal\r\n");
 	}
 	else if (action == LOCK) {
-		stdio_write("got lock signal\r\n");
+		stdio_write("got LOCK signal\r\n");
+	}
+	else if (action == NO_OP) {
+		stdio_write("got NO_OP signal\r\n");
 	}
 
 #ifdef SIM_CONNECTED
-	if (send_can_message() != CAN_OK) {
+	if (send_can_control_msg(action) != CAN_OK) {
 		stdio_write("CAN Tx error\r\n");
 		return false;
 	}

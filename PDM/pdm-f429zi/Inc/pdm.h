@@ -4,9 +4,18 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-//#define SIM_CONNECTED
+#define SIM_CONNECTED
+#define SENSITIVITY_THRESHOLD 0.2	// in meters
+#define FENCING_THRESHOLD 1.0		// in meters
 
 extern void pdm_main();
+
+typedef enum ecu_action_t {
+	NO_OP,
+	WAKEUP,
+	LOCK,
+	START
+} ecu_action_t;
 
 typedef enum pdm_state_t {
 	STATE_DISCOVERY,
@@ -31,6 +40,5 @@ static uint8_t blink_msg[] = {
 };
 
 #define POLL_MAX_RX_RETRY 3
-#define SENSITIVITY_THRESHOLD 0.2	// in meters
 
 #endif // PDM_H

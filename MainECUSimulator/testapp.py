@@ -99,7 +99,7 @@ class SenderReceiver:
         # Note that channel will change depending on the port
         # bus = can.interface.Bus(bustype='seeedstudio', channel='com4', bitrate=500000)
         # bus = can.Bus(bustype='seeedstudio', channel='com4', bitrate=500000, operation_mode='normal')
-        self.bus = can.Bus(bustype='seeedstudio', channel='/dev/tty.usbserial-1420', bitrate=500000, operation_mode='normal',frame_type='STD')
+        self.bus = can.Bus(bustype='seeedstudio', channel='com10', bitrate=500000, operation_mode='normal',frame_type='STD')
 
 
 class App(tk.Tk):
