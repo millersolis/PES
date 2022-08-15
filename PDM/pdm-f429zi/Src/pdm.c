@@ -373,10 +373,6 @@ ecu_action_t check_ecu_action()
 {
 	uint8_t distance_diff = abs(prevDistance - distance);
 
-	if (distance_diff > SENSITIVITY_THRESHOLD) {
-		return NO_OP;
-	}
-
 	if (prevDistance >= FENCING_THRESHOLD && distance < FENCING_THRESHOLD) {
 		return WAKEUP;
 	}
