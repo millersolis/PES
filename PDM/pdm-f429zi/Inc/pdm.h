@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 #define SIM_CONNECTED
-#define FENCING_THRESHOLD 1.0		// in meters
+#define FENCING_THRESHOLD 2.0		// in meters
 
 extern void pdm_main();
 
