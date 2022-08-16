@@ -120,7 +120,8 @@ class App(tk.Tk):
         self.db = Database()
 
         self.geometry('900x600')
-        self.columnconfigure([0,1], weight=1, minsize=75)
+        # self.columnconfigure([0,1], weight=1, minsize=75)
+        self.columnconfigure([0], weight=1, minsize=75)
         self.rowconfigure([0,1,2], weight=1, minsize=50)
 
         self.create_widgets(sender)
@@ -128,7 +129,8 @@ class App(tk.Tk):
 
     def create_widgets(self, sender):
         title_label = tk.Label(text='Proximity Entrance System Simulated ECU', font=font.Font(weight='bold'))
-        title_label.grid(row=0, column=0, columnspan=2)
+        # title_label.grid(row=0, column=0, columnspan=2)
+        title_label.grid(row=0, column=0, columnspan=1)
 
         states_frame = tk.Frame()
         states_frame.grid(row=1, column=0, rowspan=2)
@@ -142,16 +144,12 @@ class App(tk.Tk):
         self.start_label = tk.Label(master=states_frame, text='START', fg='black', bg='#cffcd2', width=25, height=8)
         self.start_label.pack()
 
-        self.lock_label = tk.Label(master=states_frame, text='STOP', fg='black', bg='#e2c3b8', width=25, height=8)
+        self.lock_label = tk.Label(master=states_frame, text='LOCK', fg='black', bg='#e2c3b8', width=25, height=8)
         self.lock_label.pack()
 
-        # self.start_button = tk.Button(text='Send enrollment table', fg='black', bg='green', width=40, height=3, command=lambda: sender.send_enrollment_table_to_pdm(self.db))
-        self.start_button = tk.Button(text='Start Switch', fg='black', bg='green', width=20, height=3, command=lambda: sender.start_motorcycle(self))
+        self.start_button = tk.Button(text='Start Switch', fg='black', bg='#cffcd2', width=20, height=3, command=lambda: sender.start_motorcycle(self))
         self.start_button.grid(row=1, column=1)
 
-        # Not sure if a text box should be used for the DB part but putting it here for now
-        self.cmd_text_box = tk.Text()
-        self.cmd_text_box.grid(row=2, column=1)
 
     def change_state_label(self, state):
 
