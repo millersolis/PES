@@ -16,6 +16,12 @@ SQLITE_FILENAME = 'echo_db.db'
 # Assumme PDM public key is b06188d2-65d6-4ffb-b9b1-578b0e35e002
 MOTORCYCLE_PDM = 'b06188d2-65d6-4ffb-b9b1-578b0e35e002'
 
+# States
+WAKEUP = 1
+START = 2
+LOCK = 3
+
+
 sqlite_db_path = os.path.join(OUTPUTPATH, SQLITE_FILENAME)
 
 class Database:
@@ -61,6 +67,9 @@ class SenderReceiver:
 
         # print(type(len(data)%8))
 
+    def start_motorcycle(self, app):
+        if self.current_state == WAKEUP:
+            app.change_state_label(START)
 
     def send_enrollment_table_to_pdm(self, db):
         # Code to format JSON response from DB here
@@ -90,8 +99,9 @@ class SenderReceiver:
 
             # Code to interpret received message data and call proper function here
             if message.data[0] == 1:
-                state = message.data[1]
-                app.change_state_label(state)
+                state_received = message.data[1]
+                self.current_state = state_received
+                app.change_state_label(state_received)
             else:
                 pass # TODO: Send enrollment table
 
@@ -100,7 +110,7 @@ class SenderReceiver:
         # bus = can.interface.Bus(bustype='seeedstudio', channel='com4', bitrate=500000)
         # bus = can.Bus(bustype='seeedstudio', channel='com4', bitrate=500000, operation_mode='normal')
         self.bus = can.Bus(bustype='seeedstudio', channel='com10', bitrate=500000, operation_mode='normal',frame_type='STD')
-
+        self.current_state = LOCK   # bike is locked by default
 
 class App(tk.Tk):
 
@@ -110,14 +120,17 @@ class App(tk.Tk):
         self.db = Database()
 
         self.geometry('900x600')
-        self.columnconfigure([0,1], weight=1, minsize=75)
+        # self.columnconfigure([0,1], weight=1, minsize=75)
+        self.columnconfigure([0], weight=1, minsize=75)
         self.rowconfigure([0,1,2], weight=1, minsize=50)
 
         self.create_widgets(sender)
+        self.change_state_label(sender.current_state)
 
     def create_widgets(self, sender):
-        title_label = tk.Label(text='Echos Proximity Entrance System Simulated ECU')
-        title_label.grid(row=0, column=0, columnspan=2)
+        title_label = tk.Label(text='Proximity Entrance System Simulated ECU', font=font.Font(weight='bold'))
+        # title_label.grid(row=0, column=0, columnspan=2)
+        title_label.grid(row=0, column=0, columnspan=1)
 
         states_frame = tk.Frame()
         states_frame.grid(row=1, column=0, rowspan=2)
@@ -131,33 +144,28 @@ class App(tk.Tk):
         self.start_label = tk.Label(master=states_frame, text='START', fg='black', bg='#cffcd2', width=25, height=8)
         self.start_label.pack()
 
-        self.lock_label = tk.Label(master=states_frame, text='STOP', fg='black', bg='#e2c3b8', width=25, height=8)
+        self.lock_label = tk.Label(master=states_frame, text='LOCK', fg='black', bg='#e2c3b8', width=25, height=8)
         self.lock_label.pack()
 
-        self.start_button = tk.Button(text='Send enrollment table', fg='black', bg='green', width=40, height=3, command=lambda: sender.send_enrollment_table_to_pdm(self.db))
-        # self.start_button = tk.Button(text='Send enrollment table', fg='black', bg='green', width=40, height=3, command=lambda: sender.send_can_message())
+        self.start_button = tk.Button(text='Start Switch', fg='black', bg='#cffcd2', width=20, height=3, command=lambda: sender.start_motorcycle(self))
         self.start_button.grid(row=1, column=1)
-
-        # Not sure if a text box should be used for the DB part but putting it here for now
-        self.cmd_text_box = tk.Text()
-        self.cmd_text_box.grid(row=2, column=1)
 
 
     def change_state_label(self, state):
 
         # state values can be changed later
-        if state == 1:
+        if state == WAKEUP:
             self.wakeup_label.configure(bg='yellow', font=font.Font(weight='bold'))
             self.start_label.configure(bg='#cffcd2', font=font.Font(weight='normal'))
             self.lock_label.configure(bg='#e2c3b8', font=font.Font(weight='normal'))
 
             self.start_button.configure(bg='green', font=font.Font(weight='bold'))
-        elif state == 2:
+        elif state == START:
             self.wakeup_label.configure(bg='#fcfccf', font=font.Font(weight='normal'))
             self.start_label.configure(bg='green', font=font.Font(weight='bold'))
             self.lock_label.configure(bg='#e2c3b8', font=font.Font(weight='normal'))
 
-            self.start_button.configure(bg='#cffcd2', font=font.Font(weight='normal'))
+            self.start_button.configure(bg='green', font=font.Font(weight='bold'))
         else:
             self.wakeup_label.configure(bg='#fcfccf', font=font.Font(weight='normal'))
             self.start_label.configure(bg='#cffcd2', font=font.Font(weight='normal'))
