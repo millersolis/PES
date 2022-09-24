@@ -1,11 +1,15 @@
 #include "pdm_auth.h"
 
+#include <stdio.h>
 #include <string.h>
 #include "deca_device_api.h"
 #include "deca_regs.h"
 #include "stdio_d.h"
 
 #define AUTH_ACK_MSG_PAYLOAD_INDEX 22
+#define AUTH_REQUEST_LEN 24
+#define AUTH_REPLY_LEN 56
+#define AUTH_ACK_LEN 56
 
 uint8_t auth_request_msg[24] = {
 	0x41, 0x88,								// frame control; data frame, pan compression, 64-bit addresses
