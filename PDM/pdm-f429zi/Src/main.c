@@ -25,6 +25,7 @@
 /* USER CODE BEGIN Includes */
 #include "pdm.h"
 #include "port.h"
+#include "receiver.h"
 app_t 	app;
 /* USER CODE END Includes */
 
@@ -121,6 +122,7 @@ int main(void)
 
   stdio_init(&huart7);
   pdm_main();
+//  receiver_main();
 
   /* USER CODE END 2 */
 

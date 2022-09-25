@@ -50,6 +50,9 @@ send_status_t send_ranging_init_msg()
     	return STATUS_SEND_ERROR;
     }
 
+	/* Clear good TX frame sent in the DW1000 status register. */
+	dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_TXFRS);
+
     return STATUS_SEND_OK;
 }
 
@@ -78,10 +81,10 @@ receive_status_t receive_poll_msg(uint8_t buffer[RX_BUF_LEN])
 		return STATUS_RECEIVE_ERROR;
 	}
 
-	uint32 frameLen;
+	/* Clear good RX frame event in the DW1000 status register. */
+	dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_RXFCG);
 
-	/* Clear good RX frame event and TX frame sent in the DW1000 status register. */
-	dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_RXFCG | SYS_STATUS_TXFRS);
+	uint32 frameLen;
 
 	/* A frame has been received, read it into the local buffer. */
 	frameLen = dwt_read32bitreg(RX_FINFO_ID) & RX_FINFO_RXFLEN_MASK;
@@ -117,6 +120,9 @@ send_status_t send_response_msg()
 	while (!(dwt_read32bitreg(SYS_STATUS_ID) & SYS_STATUS_TXFRS))
 	{ };
 
+	/* Clear good TX frame sent in the DW1000 status register. */
+	dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_TXFRS);
+
 	/* Increment frame sequence number after transmission of the response message (modulo 256). */
 	frame_seq_nb++;
 
@@ -146,10 +152,10 @@ receive_status_t receive_final_msg(uint8_t buffer[RX_BUF_LEN])
 		return STATUS_RECEIVE_ERROR;
 	}
 
-	uint32 frameLen;
+	/* Clear good RX frame event in the DW1000 status register. */
+	dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_RXFCG);
 
-	/* Clear good RX frame event and TX frame sent in the DW1000 status register. */
-	dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_RXFCG | SYS_STATUS_TXFRS);
+	uint32 frameLen;
 
 	/* A frame has been received, read it into the local buffer. */
 	frameLen = dwt_read32bitreg(RX_FINFO_ID) & RX_FINFO_RXFLEN_MASK;

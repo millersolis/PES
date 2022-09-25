@@ -134,6 +134,7 @@ int init_dw1000()
 	setup_DW1000RSTnIRQ(0);
 
 	reset_DW1000();
+
 	port_set_dw1000_slowrate();
 
 	if (dwt_initialise(DWT_LOADUCODE) != DWT_SUCCESS) {
@@ -186,7 +187,8 @@ pdm_state_t receive_blink()
 		return STATE_DISCOVERY;
 	}
 
-    dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_RXFCG);
+	/* Clear good RX frame event in the DW1000 status register. */
+	dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_RXFCG);
 
 	memset(pdm_rx_buffer, 0, sizeof(pdm_rx_buffer));
 
@@ -258,8 +260,13 @@ pdm_state_t perform_ranging()
 	}
 
 	if (send_response_msg() != STATUS_SEND_OK) {
+		stdio_write("failed to send response msg\r\n");
 		return STATE_RANGING;
 	}
+
+	dwt_setrxtimeout(0);
+	dwt_setpreambledetecttimeout(0xffff);
+	dwt_rxenable(DWT_START_RX_IMMEDIATE);
 
 	// Receive Ranging Final
 	rx_status = receive_msg(pdm_rx_buffer);
