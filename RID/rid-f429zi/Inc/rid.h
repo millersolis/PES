@@ -8,6 +8,8 @@ void rid_main();
 
 typedef enum rid_state_t {
 	STATE_DISCOVERY,
+	STATE_RANGING_POLL,
+	STATE_RANGING_FINAL,
 	STATE_RANGING,
 	STATE_AUTHENTICATION
 } rid_state_t;

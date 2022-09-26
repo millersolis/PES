@@ -25,7 +25,7 @@ static uint8_t symmetric_key[16] = {
 	'b', 'o', 'r', 'i', 'n', 'g', 'k', 'e', 'y'
 };
 static uint64_t rolling_code = 0xB632F836BF96F22C;
-static uint8_t rng_init_rx_retry_counter = 0;
+
 
 uint8_t blink_msg[24] = {
 	0x41, 0xCC,								// frame control; beacon, pan compression, and long addresses
@@ -169,7 +169,11 @@ rid_state_t perform_blink()
     	return STATE_DISCOVERY;
     }
 
-    if (is_ranging_init_msg(rid_rx_buffer) == false) {
+    if (is_auth_request_msg(rid_rx_buffer)) {
+		stdio_write("received auth request message\r\n");
+		return STATE_AUTHENTICATION;
+	}
+    else if (!is_ranging_init_msg(rid_rx_buffer)) {
 		stdio_write("received non-ranging-init message\r\n");
 		return STATE_DISCOVERY;
     }
@@ -177,45 +181,41 @@ rid_state_t perform_blink()
     return STATE_RANGING;
 }
 
-bool retry_ranging_init_rx() {
-	if (rng_init_rx_retry_counter < RNG_INIT_MAX_RX_RETRY) {
-		++rng_init_rx_retry_counter;
-		return true;
-	}
 
-	rng_init_rx_retry_counter = 0;
-	return false;
-}
 
 rid_state_t perform_ranging()
 {
-	dwt_setrxtimeout(0);
+//	dwt_setrxtimeout(0);
+//	dwt_setpreambledetecttimeout(0xf000);
+//	dwt_rxenable(DWT_START_RX_IMMEDIATE);
+//
+//	if (receive_ranging_init_msg(rid_rx_buffer) != STATUS_RECEIVE_OK) {
+//		return STATE_RANGING;
+//	}
+//
+//
+//	if (is_auth_request_msg(rid_rx_buffer)) {
+//		stdio_write("received auth request message\r\n");
+//		return STATE_AUTHENTICATION;
+//	}
+//	else if (!is_ranging_init_msg(rid_rx_buffer)) {
+//		stdio_write("received non-ranging-init message\r\n");
+//		return STATE_RANGING;
+//	}
+//
+//	// manually force back to idle mode so the rest of ranging works
+//	dwt_forcetrxoff();
+
 	dwt_setpreambledetecttimeout(0xf000);
-	dwt_rxenable(DWT_START_RX_IMMEDIATE);
-
-	if (receive_ranging_init_msg(rid_rx_buffer) != STATUS_RECEIVE_OK) {
-		return STATE_RANGING;
-	}
-
-
-	if (is_auth_request_msg(rid_rx_buffer)) {
-		stdio_write("received auth request message\r\n");
-		return STATE_AUTHENTICATION;
-	}
-	else if (!is_ranging_init_msg(rid_rx_buffer)) {
-		stdio_write("received non-ranging-init message\r\n");
-		return STATE_RANGING;
-	}
-
-	// manually force back to idle mode so the rest of ranging works
-	dwt_forcetrxoff();
-
 	dwt_setrxaftertxdelay(POLL_TX_TO_RESP_RX_DLY_UUS);
 	dwt_setrxtimeout(RESP_RX_TIMEOUT_UUS);
 
 	if (send_poll_msg() != STATUS_SEND_OK) {
 		return STATE_RANGING;
 	}
+	else
+		stdio_write("sent poll message\r\n");
+
 
 	receive_status_t recResult = receive_response_msg(rid_rx_buffer);
 	if (recResult != STATUS_RECEIVE_OK) {
@@ -241,17 +241,18 @@ rid_state_t perform_ranging()
 
 rid_state_t perform_authentication()
 {
-	dwt_setpreambledetecttimeout(5000);
-	dwt_rxenable(DWT_START_RX_IMMEDIATE);
-
-	if (receive_auth_request(rid_rx_buffer) != STATUS_RECEIVE_OK) {
-		return STATE_AUTHENTICATION;
-	}
-
-	if (is_auth_request_msg(rid_rx_buffer) == false) {
-		stdio_write("received non-auth-request message\r\n");
-		return STATE_AUTHENTICATION;
-	}
+//	dwt_setpreambledetecttimeout(5000);
+//	dwt_rxenable(DWT_START_RX_IMMEDIATE);
+//
+	//TODO: Check for auth previously received in buffer
+//	if (receive_auth_request(rid_rx_buffer) != STATUS_RECEIVE_OK) {
+//		return STATE_AUTHENTICATION;
+//	}
+//
+//	if (is_auth_request_msg(rid_rx_buffer) == false) {
+//		stdio_write("received non-auth-request message\r\n");
+//		return STATE_AUTHENTICATION;
+//	}
 
 	// seed initial vector for AES128 CBC encryption
 	for (int index = 0; index < 4; ++index) {

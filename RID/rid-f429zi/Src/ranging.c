@@ -64,11 +64,13 @@ receive_status_t receive_ranging_init_msg(uint8_t buffer[RX_BUF_LEN])
 	if ((statusReg & SYS_STATUS_ALL_RX_TO) != 0) {
 		print_timeout_errors(statusReg);
         dwt_write32bitreg(SYS_STATUS_ID, msgReceivedFlags);
+        stdio_write("Init message tx timeout.\n\r");
 		return STATUS_RECEIVE_TIMEOUT;
 	}
 	else if ((statusReg & SYS_STATUS_ALL_RX_ERR) != 0) {
 		print_status_errors(statusReg);
         dwt_write32bitreg(SYS_STATUS_ID, msgReceivedFlags);
+        stdio_write("Init message tx error.\n\r");
 		return STATUS_RECEIVE_ERROR;
 	}
 
@@ -92,7 +94,7 @@ send_status_t send_poll_msg()
 	/* Start transmission, indicating that a response is expected so that reception is enabled automatically after the frame is sent and the delay
 	 * set by dwt_setrxaftertxdelay() has elapsed. */
 	if (dwt_starttx(DWT_START_TX_IMMEDIATE | DWT_RESPONSE_EXPECTED) != DWT_SUCCESS) {
-		stdio_write("Poll message rx error.\n\r");
+		stdio_write("Poll message tx error.\n\r");
 		return STATUS_SEND_ERROR;
 	}
 
@@ -118,7 +120,7 @@ receive_status_t receive_response_msg(uint8_t buffer[RX_BUF_LEN])
 
         dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR);
 		dwt_rxreset();
-
+		stdio_write("Response message rx timeout.\n\r");
 		return STATUS_RECEIVE_TIMEOUT;
 	}
 	else if ((statusReg & SYS_STATUS_ALL_RX_ERR) != 0) {
@@ -126,6 +128,7 @@ receive_status_t receive_response_msg(uint8_t buffer[RX_BUF_LEN])
 
         dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR);
 		dwt_rxreset();
+		stdio_write("Response message rx error.\n\r");
 		return STATUS_RECEIVE_ERROR;
 	}
 

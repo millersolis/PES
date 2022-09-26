@@ -11,7 +11,7 @@
 // delays for ranging
 #define TX_ANT_DLY 16505                // tx antenna delay (default 16505)
 #define RX_ANT_DLY 16505                // rx antenna delay (default 16505)
-#define POLL_RX_TO_RESP_TX_DLY_UUS 10000 // timeout from poll rx timestamp to response tx timestamp (default 2750)
+#define POLL_RX_TO_RESP_TX_DLY_UUS 8000 // timeout from poll rx timestamp to response tx timestamp (default 2750)
 #define RESP_TX_TO_FINAL_RX_DLY_UUS 8000 // timeout from ranging response tx response to rx enable (default 500)
 #define FINAL_RX_TIMEOUT_UUS 3300       // timeout to receive final ranging packet (default 3300)
 #define PRE_TIMEOUT 8                   // preamble timeout (default 8)

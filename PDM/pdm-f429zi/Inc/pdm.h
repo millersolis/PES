@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define SIM_CONNECTED
+//#define SIM_CONNECTED
 #define FENCING_THRESHOLD 2.0		// in meters
 
 extern void pdm_main();
@@ -18,7 +18,9 @@ typedef enum ecu_action_t {
 
 typedef enum pdm_state_t {
 	STATE_DISCOVERY,
-	STATE_RANGING,
+	STATE_RANGING_INIT,
+	STATE_RANGING_RESP,
+	STATE_RANGING_RECV_POLL,
 	STATE_AUTHENTICATION
 } pdm_state_t;
 

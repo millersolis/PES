@@ -37,11 +37,16 @@ void setup_frame_filtering();
 pdm_state_t receive_blink();
 pdm_state_t perform_ranging();
 pdm_state_t perform_authentication();
+pdm_state_t init_ranging();
+pdm_state_t ranging_resp();
+pdm_state_t ranging_recv_poll();
 ecu_action_t check_ecu_action();
 bool perform_action_on_bike(ecu_action_t action);
 
+#ifndef SIM_CONNECTED
 static uint8_t numNoOps = 0;
-static uint8_t poll_rx_retry_counter = 0;
+#endif
+
 static double distance = 0.0;
 static double prevDistance = 200.0;	// Assumme the RID is coming out of range
 static ecu_action_t nextAction =  NO_OP;
@@ -77,17 +82,26 @@ void pdm_main()
     			update_state(&state, receive_blink());
     			break;
 
-    		case STATE_RANGING:
-				print_state_if_changed(&state, "\r\nIn RANGING\r\n");
+    		case STATE_RANGING_INIT:
+				print_state_if_changed(&state, "\r\nIn RANGING INIT\r\n");
 				clear_and_set_led(LD2_Pin);
 
-				if (state.hasChanged == true) {
-					numNoOps = 0;
-				}
+				update_state(&state, init_ranging());
+				break;
 
-				update_state(&state, perform_ranging());
-				HAL_Delay(PDM_LOOP_DELAY);
-    			break;
+    		case STATE_RANGING_RECV_POLL:
+				print_state_if_changed(&state, "\r\nIn RANGING RECV POLL\r\n");
+				clear_and_set_led(LD2_Pin);
+
+				update_state(&state, ranging_recv_poll());
+				break;
+
+    		case STATE_RANGING_RESP:
+				print_state_if_changed(&state, "\r\nIn RANGING RESP\r\n");
+				clear_and_set_led(LD2_Pin);
+
+				update_state(&state, ranging_resp());
+				break;
 
     		case STATE_AUTHENTICATION:
     			print_state_if_changed(&state, "\r\nIn AUTHENTICATION\r\n");
@@ -209,31 +223,25 @@ pdm_state_t receive_blink()
 		return STATE_DISCOVERY;
 	}
 
-	return STATE_RANGING;
+	return STATE_RANGING_INIT;
 }
 
-bool retry_poll_rx() {
-	if (poll_rx_retry_counter < POLL_MAX_RX_RETRY) {
-		++poll_rx_retry_counter;
-		return true;
-	}
-
-	poll_rx_retry_counter = 0;
-	return false;
-}
-
-pdm_state_t perform_ranging()
+pdm_state_t init_ranging()
 {
 	if (send_ranging_init_msg() != STATUS_SEND_OK) {
 		stdio_write("failed to send ranging init\r\n");
-		return STATE_RANGING;
+		return STATE_RANGING_INIT;
 	}
 
+	return STATE_RANGING_RECV_POLL;
+}
+
+pdm_state_t ranging_recv_poll()
+{
 	dwt_setrxtimeout(0);
-	dwt_setpreambledetecttimeout(1000);
+	dwt_setpreambledetecttimeout(2000);
 	dwt_rxenable(DWT_START_RX_IMMEDIATE);
 
-	// Receive Poll
 	receive_status_t rx_status = receive_msg(pdm_rx_buffer);
 	switch (rx_status) {
 
@@ -242,26 +250,26 @@ pdm_state_t perform_ranging()
 
 		case STATUS_RECEIVE_ERROR:
 			stdio_write("DEBUG: error on rx poll message\r\n");
-			return STATE_RANGING;
+			return STATE_RANGING_RECV_POLL;
 
 		case STATUS_RECEIVE_TIMEOUT:
 			stdio_write("DEBUG: timeout on rx poll message\r\n");
-			if (retry_poll_rx()) {
-				return STATE_RANGING;
-			}
-			// Retrying anyways since there is always one error in the first rx poll
-			//return STATE_DISCOVERY;
-			return STATE_RANGING;
+			return STATE_RANGING_RECV_POLL;
 	}
 
 	if (!is_poll_msg(pdm_rx_buffer)) {
 		stdio_write("received non-poll message\r\n");
-		return STATE_DISCOVERY;
+		return STATE_RANGING_INIT;
 	}
+	else
+		return STATE_RANGING_RESP;
+}
 
+pdm_state_t ranging_resp()
+{
 	if (send_response_msg() != STATUS_SEND_OK) {
 		stdio_write("failed to send response msg\r\n");
-		return STATE_RANGING;
+		return STATE_RANGING_INIT;
 	}
 
 	dwt_setrxtimeout(0);
@@ -269,7 +277,7 @@ pdm_state_t perform_ranging()
 	dwt_rxenable(DWT_START_RX_IMMEDIATE);
 
 	// Receive Ranging Final
-	rx_status = receive_msg(pdm_rx_buffer);
+	receive_status_t rx_status = receive_msg(pdm_rx_buffer);
 	switch (rx_status) {
 
 		case STATUS_RECEIVE_OK:
@@ -277,18 +285,22 @@ pdm_state_t perform_ranging()
 
 		case STATUS_RECEIVE_ERROR:
 			stdio_write("DEBUG: error on rx rng final message\r\n");
-			return STATE_RANGING;
+			return STATE_RANGING_INIT;
 
 		case STATUS_RECEIVE_TIMEOUT:
 			stdio_write("DEBUG: timeout on rx rng final message\r\n");
-			return STATE_RANGING;
+			return STATE_RANGING_INIT;
 	}
 
 
 	if (!is_final_msg(pdm_rx_buffer)) {
 		stdio_write("received non-final message\r\n");
-		return STATE_RANGING;
+		if (is_poll_msg(pdm_rx_buffer)) {
+			stdio_write("received poll message instead of final\r\n");
+		}
+		return STATE_RANGING_INIT;
 	}
+	//check if poll and send final if true
 
 	prevDistance = distance;
 	distance = retrieve_ranging_result(pdm_rx_buffer);
@@ -302,7 +314,7 @@ pdm_state_t perform_ranging()
 
 #ifdef SIM_CONNECTED
 	if (nextAction == NO_OP) {
-		return STATE_RANGING;
+		return STATE_RANGING_RECV_POLL;
 	}
 #else
 	// DEBUG: Triggering action periodically for testing
@@ -311,10 +323,14 @@ pdm_state_t perform_ranging()
 	}
 
 	if (numNoOps < 10) {
-		return STATE_RANGING;
+		return STATE_RANGING_RECV_POLL;
 	}
+	else {
+		nextAction = WAKEUP;
 
-	nextAction = WAKEUP;
+		//reset counter of NoOps
+		numNoOps = 0;
+	}
 #endif
 
 	return STATE_AUTHENTICATION;
