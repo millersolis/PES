@@ -1,5 +1,8 @@
 #include "dw_helpers.h"
 
+#include <stdio.h>
+#include <string.h>
+
 #include "deca_regs.h"
 #include "dw_config.h"
 #include "stdio_d.h"
@@ -148,3 +151,52 @@ uint16_t format_frame_header(uint8_t buffer[128], frame_control_config_t fcConfi
 	return index;
 }
 
+static char print_buf[2*RX_BUF_LEN + 1] = { 0 };
+void print_bytes(uint8_t* data, size_t length)
+{
+	memset(print_buf, 0, 2*RX_BUF_LEN + 1);
+	for (int index = 0; index < length; ++index) {
+		snprintf(&print_buf[2*index], 3, "%02x", data[index]);
+	}
+	print_buf[2*length + 1] = '\0';
+	stdio_write(print_buf);
+}
+
+void print_status_register()
+{
+	uint32_t statusRegister = dwt_read32bitreg(SYS_STATUS_ID);
+	stdio_write("status:     0x");
+	print_bytes(&statusRegister, 4);
+
+//	uint32_t stateRegister = dwt_read32bitreg(SYS_STATE_ID);
+//	stdio_write("    state:      0x");
+//	print_bytes(&stateRegister, 4);
+//
+//	uint32_t sysConfigRegister = dwt_read32bitreg(SYS_CFG_ID);
+//	stdio_write("    system config: 0x");
+//	print_bytes(&sysConfigRegister, 4);
+//
+//	stdio_write("\r\n");
+//
+//	uint32_t pmscCtrl0Register = dwt_read32bitoffsetreg(PMSC_ID, PMSC_CTRL0_OFFSET);
+//	stdio_write("pmsc ctrl0: 0x");
+//	print_bytes(&pmscCtrl0Register, 4);
+//
+//	uint32_t pmscCtrl1Register = dwt_read32bitoffsetreg(PMSC_ID, PMSC_CTRL1_OFFSET);
+//	stdio_write("    pmsc ctrl1: 0x");
+//	print_bytes(&pmscCtrl1Register, 4);
+//
+//	uint32_t pmscSnoztRegister = dwt_read32bitoffsetreg(PMSC_ID, PMSC_SNOZT_OFFSET);
+//	stdio_write("    pmsc snozt:    0x");
+//	print_bytes(&pmscSnoztRegister, 4);
+//
+//	uint32_t pmscTxfseqRegister = dwt_read32bitoffsetreg(PMSC_ID, PMSC_TXFINESEQ_OFFSET);
+//	stdio_write("    pmsc txfseq: 0x");
+//	print_bytes(&pmscTxfseqRegister, 4);
+//
+//	uint32_t pmscLedControlRegister = dwt_read32bitoffsetreg(PMSC_ID, PMSC_LEDC_OFFSET);
+//	stdio_write("    pmsc led control: 0x");
+//	print_bytes(&pmscLedControlRegister, 4);
+
+	stdio_write("\r\n\r\n");
+}

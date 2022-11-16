@@ -1,0 +1,9 @@
+../Core/Src/ranging.c:46:6:is_ranging_init_msg	16	static
+../Core/Src/ranging.c:52:6:is_rx_resp_msg	16	static
+../Core/Src/ranging.c:60:18:receive_ranging_init_msg	32	static
+../Core/Src/ranging.c:99:15:send_poll_msg	8	static
+../Core/Src/ranging.c:126:18:receive_response_msg	32	static
+../Core/Src/ranging.c:163:15:send_final_msg	56	static
+../Core/Src/ranging.c:213:15:get_tx_timestamp_u64	48	static
+../Core/Src/ranging.c:237:15:get_rx_timestamp_u64	48	static
+../Core/Src/ranging.c:262:13:final_msg_set_ts	32	static

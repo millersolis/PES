@@ -1,0 +1,6 @@
+../Core/Src/rid_auth.c:52:6:is_auth_request_msg	16	static
+../Core/Src/rid_auth.c:59:6:is_auth_ack_msg	16	static
+../Core/Src/rid_auth.c:66:18:receive_auth_request	32	static
+../Core/Src/rid_auth.c:102:15:send_auth_reply	16	static
+../Core/Src/rid_auth.c:121:18:receive_auth_ack	32	static
+../Core/Src/rid_auth.c:157:6:print_auth_request_msg	248	static

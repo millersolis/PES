@@ -1,0 +1,10 @@
+../Core/Src/rid.c:50:6:rid_main	8	static
+../Core/Src/rid.c:97:6:update_state	16	static
+../Core/Src/rid.c:108:6:print_state_if_changed	16	static
+../Core/Src/rid.c:118:6:clear_and_set_led	16	static
+../Core/Src/rid.c:127:5:init_dw1000	8	static
+../Core/Src/rid.c:150:6:setup_frame_filtering	24	static
+../Core/Src/rid.c:163:13:perform_blink	8	static
+../Core/Src/rid.c:188:6:retry_ranging_init_rx	4	static
+../Core/Src/rid.c:198:13:perform_ranging	16	static
+../Core/Src/rid.c:254:13:perform_authentication	24	static
