@@ -12,7 +12,7 @@
 
 # layer two project-related stuff
 /*/*/.settings/
-/*/*/Debug/
+/*/*/Debug/*
 /*/*/.mxproject
 /*/*/*.launch
 /*/*/*.log
