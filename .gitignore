@@ -1,3 +1,6 @@
+# project-wide stuff
+/.metadata/
+
 # layer one project-related stuff
 /*/.settings/
 /*/Debug/*
@@ -5,6 +8,7 @@
 /*/*.launch
 /*/*.log
 /*/*.scratch
+/*/.metadata/
 
 # layer two project-related stuff
 /*/*/.settings/
@@ -13,3 +17,4 @@
 /*/*/*.launch
 /*/*/*.log
 /*/*/*.scratch
+/*/*/.metadata/
