@@ -1,0 +1,6 @@
+../Core/Src/dw_helpers.c:10:6:print_timeout_errors	16	static
+../Core/Src/dw_helpers.c:20:6:print_status_errors	16	static
+../Core/Src/dw_helpers.c:42:10:format_frame_control	24	static
+../Core/Src/dw_helpers.c:90:10:format_frame_header	32	static
+../Core/Src/dw_helpers.c:155:6:print_bytes	24	static
+../Core/Src/dw_helpers.c:165:6:print_status_register	16	static

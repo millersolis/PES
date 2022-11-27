@@ -37,7 +37,7 @@ extern "C" {
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
-
+extern RNG_HandleTypeDef hrng;
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/

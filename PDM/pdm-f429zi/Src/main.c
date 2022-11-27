@@ -45,6 +45,8 @@ app_t 	app;
 /* Private variables ---------------------------------------------------------*/
 CAN_HandleTypeDef hcan1;
 
+RNG_HandleTypeDef hrng;
+
 SPI_HandleTypeDef hspi1;
 
 TIM_HandleTypeDef htim8;
@@ -65,6 +67,7 @@ static void MX_USART3_UART_Init(void);
 static void MX_TIM8_Init(void);
 static void MX_UART7_Init(void);
 static void MX_CAN1_Init(void);
+static void MX_RNG_Init(void);
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
 
@@ -107,6 +110,7 @@ int main(void)
   MX_TIM8_Init();
   MX_UART7_Init();
   MX_CAN1_Init();
+  MX_RNG_Init();
   /* USER CODE BEGIN 2 */
 
   /*
@@ -208,6 +212,32 @@ static void MX_CAN1_Init(void)
   /* USER CODE BEGIN CAN1_Init 2 */
 
   /* USER CODE END CAN1_Init 2 */
+
+}
+
+/**
+  * @brief RNG Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_RNG_Init(void)
+{
+
+  /* USER CODE BEGIN RNG_Init 0 */
+
+  /* USER CODE END RNG_Init 0 */
+
+  /* USER CODE BEGIN RNG_Init 1 */
+
+  /* USER CODE END RNG_Init 1 */
+  hrng.Instance = RNG;
+  if (HAL_RNG_Init(&hrng) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN RNG_Init 2 */
+
+  /* USER CODE END RNG_Init 2 */
 
 }
 

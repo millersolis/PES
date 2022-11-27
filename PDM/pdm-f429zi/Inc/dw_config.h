@@ -19,6 +19,8 @@
 /* Default communication configuration. We use here EVK1000's default mode (mode 3). */
 extern dwt_config_t dw1000_config;
 
+#define RX_BUF_LEN 128
+
 // standard ranging packet formats
 extern uint8_t rx_poll_msg[12];
 extern uint8_t tx_resp_msg[15];

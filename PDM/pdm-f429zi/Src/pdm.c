@@ -1,58 +1,63 @@
 #include "pdm.h"
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include "aes.h"
 #include "deca_regs.h"
 #include "dw_config.h"
 #include "dw_helpers.h"
+#include "dw_utils.h"
 #include "main.h"
 #include "pdm_can.h"
+#include "pdm_auth.h"
 #include "port.h"
 #include "ranging.h"
-#include "stdio.h"
 #include "stdio_d.h"
+#include "buttons.h"
 
 #define PDM_LOOP_DELAY 10
 
-typedef enum {
-	NO_OP,
-	WAKEUP,
-	LOCK
-} ecu_action_t;
+static state_t state;
+static uint8_t pdm_rx_buffer[RX_BUF_LEN] = { 0 };
+static struct AES_ctx aes_context;
+static uint8_t data[16] = { 0 };
+static uint8_t iv[16] = { 0 };
+static uint8_t symmetric_key[16] = {
+	'a', 'n', 'e', 'x', 't', 'r', 'a',
+	'b', 'o', 'r', 'i', 'n', 'g', 'k', 'e', 'y'
+};
+static uint64_t rolling_code = 0xB632F836BF96F22C;
+
+void update_state(state_t* state, const pdm_state_t value);
+void print_state_if_changed(const state_t* state, const char str[32]);
+void clear_and_set_led(uint16_t gpioPin);
 
 int init_dw1000();
 void setup_frame_filtering();
-int receive_blink();
+pdm_state_t receive_blink();
+pdm_state_t perform_ranging();
+pdm_state_t perform_authentication();
+bool check_btn_actions(uint8_t* rx_buffer);
+bool toggle_lock();
 ecu_action_t check_ecu_action();
-void perform_action_on_bike(const ecu_action_t action);
+bool perform_action_on_bike(ecu_action_t action);
 
+static uint8_t numNoOps = 0;
+static uint8_t poll_rx_retry_counter = 0;
 static double distance = 0.0;
 static double prevDistance = 0.0;
+static ecu_action_t nextAction =  NO_OP;
 
-#define BLINK_MSG_COMMON_LEN 22
-static uint8_t blink_msg[] = {
-	0x41, 0xCC,								// frame control; beacon, pan compression, and long addresses
-	0,										// sequence number; filled by sender
-	0xCA, 0xDE,								// PAN ID; default to 0xDECA
-	'P', 'D', 'M', '0', '0', '0', '0', '1', // destination address; pdm extended identifier
-	'R', 'I', 'D', '0', '0', '0', '0', '1', // source address; rid extended identifier
-	0x21,									// data; 0x21 is function code for blink
-	0, 0									// FCS; filled as CRC of the frame by hardware
-};
-
-static uint8_t ranging_init_msg[] = {
-	0x41, 0x8C,								// frame control; beacon, pan compression, and long addresses
-	0,										// sequence number; filled by sender
-	0xCA, 0xDE,								// PAN ID; default to 0xDECA
-	'R', 'I', 'D', '0', '0', '0', '0', '1', // destination address; pdm extended identifier
-	'P', '1',								// source address; pdm short identifier
-	0x20,									// data; 0x20 is ranging init function code
-	0, 0									// FCS; filled as CRC of the frame by hardware
-};
-#define BLINK_RX_BUFFER_LEN 128
-static uint8_t blink_rx_buffer[RX_BUFFER_LEN] = { 0 };
+// Motorcycle state (locked at initialization)
+static ecu_action_t prev_motorcycle_state = LOCK;
+static ecu_action_t motorcycle_state = LOCK;
 
 void pdm_main()
 {
 	stdio_write("\r\nstarting PDM\r\n");
+
+	AES_init_ctx(&aes_context, &symmetric_key[0]);
 
 	init_can(&hcan1);
 
@@ -62,74 +67,74 @@ void pdm_main()
 	}
 
     setup_frame_filtering();
-
     dwt_setpreambledetecttimeout(PRE_TIMEOUT);
 
-	char dist_str[32] = {0};
-	while (1) {
-		dwt_setrxtimeout(0);
-		dwt_setpreambledetecttimeout(0);
-		dwt_rxenable(DWT_START_RX_IMMEDIATE);
+    perform_action_on_bike(motorcycle_state);
 
-		stdio_write("starting discovery\r\n");
-		HAL_GPIO_WritePin(GPIOB, LD1_Pin, GPIO_PIN_SET);
+    while (1) {
+    	switch(state.value) {
+    		case STATE_DISCOVERY:
+				print_state_if_changed(&state, "\r\nIn DISCOVERY\r\n");
+				clear_and_set_led(LD1_Pin);
 
-		if (receive_blink() != DWT_SUCCESS) {
-			HAL_Delay(PDM_LOOP_DELAY);
-			continue;
-		}
+				// set pdm to idle and wait for next blink message
+    			dwt_setrxtimeout(0);
+    			dwt_setpreambledetecttimeout(0);
+    			dwt_rxenable(DWT_START_RX_IMMEDIATE);
 
-		HAL_GPIO_WritePin(GPIOB, LD1_Pin, GPIO_PIN_RESET);
-		stdio_write("starting ranging\r\n");
-		HAL_GPIO_WritePin(GPIOB, LD2_Pin, GPIO_PIN_SET);
+    			update_state(&state, receive_blink());
+    			break;
 
-		uint8_t numNoOps = 0;
+    		case STATE_RANGING:
+				print_state_if_changed(&state, "\r\nIn RANGING\r\n");
+				clear_and_set_led(LD2_Pin);
 
-		while (numNoOps < 50) {
-			dwt_setrxtimeout(0);
-			dwt_rxenable(DWT_START_RX_IMMEDIATE);
+				if (state.hasChanged == true) {
+					numNoOps = 0;
+				}
 
-			double tmpDistance;
-			if (try_ranging(&tmpDistance) != DWT_SUCCESS) {
+				update_state(&state, perform_ranging());
 				HAL_Delay(PDM_LOOP_DELAY);
-				continue;
-			}
+    			break;
 
-			prevDistance = distance;
-			distance = tmpDistance;
+    		case STATE_AUTHENTICATION:
+    			print_state_if_changed(&state, "\r\nIn AUTHENTICATION\r\n");
+    			clear_and_set_led(LD3_Pin);
 
-			/* Display computed distance. */
-			snprintf(dist_str, 32, "DIST: %3.2f m\r\n", distance);
-			stdio_write(dist_str);
+    			update_state(&state, perform_authentication());
+    			break;
+    	}
+    }
+}
 
-			ecu_action_t action = check_ecu_action();
-
-			if (action == NO_OP) {
-				++numNoOps;
-				HAL_Delay(PDM_LOOP_DELAY);
-				continue;
-			}
-
-			perform_action_on_bike(action);
-
-			HAL_Delay(PDM_LOOP_DELAY);
-		}
-
-		HAL_GPIO_WritePin(GPIOB, LD2_Pin, GPIO_PIN_RESET);
-		stdio_write("starting authentication\r\n");
-		HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_SET);
-
-		// do auth here
-
-		HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_RESET);
-		HAL_Delay(PDM_LOOP_DELAY);
-
-		if (send_can_message() != CAN_OK) {
-			stdio_write("canbad\r\n");
-			continue;
-		}
-		stdio_write("cangood\r\n");
+void update_state(state_t* state, const pdm_state_t value)
+{
+	if (state->value == value) {
+		state->hasChanged = 0;
+		return;
 	}
+
+	state->value = value;
+	state->hasChanged = true;
+}
+
+void print_state_if_changed(const state_t* state, const char str[32])
+{
+	// if state is unchanged, don't print a new state value
+	if (state->hasChanged == false) {
+		return;
+	}
+
+	stdio_write(str);
+}
+
+void clear_and_set_led(uint16_t gpioPin)
+{
+	HAL_GPIO_WritePin(GPIOB, LD1_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(GPIOB, LD2_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(GPIOB, LD3_Pin, GPIO_PIN_RESET);
+
+	HAL_GPIO_WritePin(GPIOB, gpioPin, GPIO_PIN_SET);
 }
 
 int init_dw1000()
@@ -137,6 +142,7 @@ int init_dw1000()
 	setup_DW1000RSTnIRQ(0);
 
 	reset_DW1000();
+
 	port_set_dw1000_slowrate();
 
 	if (dwt_initialise(DWT_LOADUCODE) != DWT_SUCCESS) {
@@ -168,71 +174,321 @@ void setup_frame_filtering()
 	dwt_enableframefilter(DWT_FF_BEACON_EN | DWT_FF_DATA_EN);
 }
 
-int receive_blink()
+bool is_blink_msg(uint8_t* rx_buffer)
+{
+	rx_buffer[ALL_MSG_SN_IDX] = 0;	// Make received frame count 0 to compare
+	blink_msg[ALL_MSG_SN_IDX] = 0;
+	return (memcmp(pdm_rx_buffer, blink_msg, BLINK_MSG_COMMON_LEN) == 0);
+}
+
+pdm_state_t receive_blink()
 {
 	// poll for blink message
 	uint32_t statusReg = 0;
 	uint32_t msgReceivedFlags = SYS_STATUS_RXFCG | SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR;
+
 	while (!((statusReg = dwt_read32bitreg(SYS_STATUS_ID)) & msgReceivedFlags));
 
 	if ((statusReg & SYS_STATUS_ALL_RX_TO) != 0) {
 		print_timeout_errors(statusReg);
 
         dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR);
-		return DWT_ERROR;
+		return STATE_DISCOVERY;
 	}
 	else if ((statusReg & SYS_STATUS_ALL_RX_ERR) != 0) {
 		print_status_errors(statusReg);
 
         dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR);
-		return DWT_ERROR;
+		return STATE_DISCOVERY;
 	}
 
-    dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_RXFCG);
+	/* Clear good RX frame event in the DW1000 status register. */
+	dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_RXFCG);
 
-	memset(blink_rx_buffer, 0, sizeof(blink_rx_buffer));
+	memset(pdm_rx_buffer, 0, sizeof(pdm_rx_buffer));
 
 	uint32_t frameLen = dwt_read32bitreg(RX_FINFO_ID) & RX_FINFO_RXFL_MASK_1023;
-	if (frameLen <= BLINK_RX_BUFFER_LEN) {
-		dwt_readrxdata(blink_rx_buffer, frameLen, 0);
+	if (frameLen <= RX_BUF_LEN) {
+		dwt_readrxdata(pdm_rx_buffer, frameLen, 0);
 	}
 
-	// zero out sequence number and FCS for comparison
-	blink_rx_buffer[2] = 0;
-	if (memcmp(blink_rx_buffer, blink_msg, BLINK_MSG_COMMON_LEN) != 0) {
-		stdio_write("received non-blink message\r\n");
-		return DWT_ERROR;
+	stdio_write("received: 0x");
+	//print_bytes(pdm_rx_buffer, 32);
+
+	if (is_blink_msg(pdm_rx_buffer)) {
+		if (send_ranging_init_msg() != STATUS_SEND_OK) {
+			stdio_write("failed to send ranging init\r\n");
+			return STATE_DISCOVERY;
+		}
+		return STATE_RANGING;
+	}
+	else {
+		stdio_write("received non-blink message\r\n");\
+		check_btn_actions(pdm_rx_buffer);	// Check for button actions
+		return STATE_DISCOVERY;
 	}
 
-    dwt_writetxdata(sizeof(ranging_init_msg), ranging_init_msg, 0);
-    dwt_writetxfctrl(sizeof(ranging_init_msg), 0, 1);
+}
 
-    if (dwt_starttx(DWT_START_TX_IMMEDIATE) != DWT_SUCCESS) {
-    	stdio_write("error: tx ranging init message failed.\r\n");
-    	return DWT_ERROR;
-    }
+bool retry_poll_rx() {
+#ifdef INFINITE_RETRIES_RX
+	return true;
+#endif
 
-	return DWT_SUCCESS;
+	if (poll_rx_retry_counter < POLL_MAX_RX_RETRY) {
+		++poll_rx_retry_counter;
+		return true;
+	}
+
+	poll_rx_retry_counter = 0;
+	return false;
+}
+
+pdm_state_t perform_ranging()
+{
+	if (send_ranging_init_msg() != STATUS_SEND_OK) {
+		stdio_write("failed to send ranging init\r\n");
+		return STATE_RANGING;
+	}
+
+	dwt_setrxtimeout(0);
+	dwt_setpreambledetecttimeout(1000);
+	dwt_rxenable(DWT_START_RX_IMMEDIATE);
+
+	// Receive Poll
+	receive_status_t rx_status = receive_msg(pdm_rx_buffer);
+	switch (rx_status) {
+
+		case STATUS_RECEIVE_OK:
+			break;
+
+		case STATUS_RECEIVE_ERROR:
+			stdio_write("DEBUG: error on rx poll message\r\n");
+			return STATE_RANGING;
+
+		case STATUS_RECEIVE_TIMEOUT:
+			stdio_write("DEBUG: timeout on rx poll message\r\n");
+			if (retry_poll_rx()) {
+				return STATE_RANGING;
+			}
+
+			return STATE_DISCOVERY;		// Avoid getting stuck on rx poll forever
+//			return STATE_RANGING;
+	}
+
+	if (!is_poll_msg(pdm_rx_buffer)) {
+		check_btn_actions(pdm_rx_buffer);	// Check for user button messages
+		stdio_write("received non-poll message\r\n");
+		return STATE_DISCOVERY;
+	}
+
+	if (send_response_msg() != STATUS_SEND_OK) {
+		stdio_write("failed to send response msg\r\n");
+		return STATE_RANGING;
+	}
+
+	dwt_setrxtimeout(0);
+	dwt_setpreambledetecttimeout(0xffff);
+	dwt_rxenable(DWT_START_RX_IMMEDIATE);
+
+	// Receive Ranging Final
+	rx_status = receive_msg(pdm_rx_buffer);
+	switch (rx_status) {
+
+		case STATUS_RECEIVE_OK:
+			break;
+
+		case STATUS_RECEIVE_ERROR:
+			stdio_write("DEBUG: error on rx rng final message\r\n");
+			return STATE_RANGING;
+
+		case STATUS_RECEIVE_TIMEOUT:
+			stdio_write("DEBUG: timeout on rx rng final message\r\n");
+			return STATE_RANGING;
+	}
+
+
+	if (!is_final_msg(pdm_rx_buffer)) {
+		check_btn_actions(pdm_rx_buffer);	// Check for user button messages
+		stdio_write("received non-final message\r\n");
+		return STATE_RANGING;
+	}
+	prevDistance = distance;
+
+	distance = retrieve_ranging_result(pdm_rx_buffer);
+
+	/* Display computed distance. */
+	char dist_str[32] = {0};
+	snprintf(dist_str, 32, "DIST: %3.2f m\r\n", distance);
+	stdio_write(dist_str);
+
+	nextAction = check_ecu_action();
+
+
+#ifndef TRIGGER_ACTION_PERIODICALLY
+	if (nextAction == NO_OP) {
+		return STATE_RANGING;
+	}
+#else
+	// DEBUG: Triggering action periodically for testing
+	if (nextAction == NO_OP) {
+		++(numNoOps);
+	}
+
+	if (numNoOps < 10) {
+		return STATE_RANGING;
+	}
+
+	nextAction = WAKEUP;
+#endif
+
+	perform_action_on_bike(nextAction);
+	//return STATE_AUTHENTICATION;
+	return STATE_RANGING;
+}
+
+
+static uint8_t data_repl[32];
+static uint8_t data_ack[32];
+
+pdm_state_t perform_authentication()
+{
+	if (send_auth_request() != STATUS_SEND_OK) {
+		return STATE_AUTHENTICATION;
+	}
+
+	dwt_setpreambledetecttimeout(100);
+	dwt_setrxtimeout(0);
+	dwt_rxenable(DWT_START_RX_IMMEDIATE);
+
+	if (receive_auth_reply(pdm_rx_buffer) != STATUS_RECEIVE_OK) {
+		return STATE_AUTHENTICATION;
+	}
+
+	if (is_auth_reply_msg(pdm_rx_buffer) == false) {
+		stdio_write("received non-auth-reply message\r\n");
+		return STATE_AUTHENTICATION;
+	}
+
+	// for printing out the previous data
+	memcpy(&data_repl[0], &pdm_rx_buffer[AUTH_FRAME_COMMON_LEN], 32);
+
+	memcpy(&data[0], &pdm_rx_buffer[AUTH_FRAME_COMMON_LEN], 16);
+	memcpy(&iv[0], &pdm_rx_buffer[AUTH_FRAME_COMMON_LEN+16], 16);
+	AES_ctx_set_iv(&aes_context, &iv[0]);
+	AES_CBC_decrypt_buffer(&aes_context, &data[0], 16);
+
+	uint64_t receivedRollingCode = 0;
+	memcpy((uint8_t*) &receivedRollingCode, &data[0], sizeof(uint64_t));
+
+	if ((receivedRollingCode - rolling_code) >= 100) {
+		stdio_write("received bad rolling code\r\n");
+		return STATE_DISCOVERY;
+	}
+
+	rolling_code = receivedRollingCode;
+
+	// seed initial vector for AES128 CBC encryption
+	for (int index = 0; index < 4; ++index) {
+		HAL_RNG_GenerateRandomNumber(&hrng, (uint32_t*) &iv[4*index]);
+	}
+
+	// zero out the full 16 bytes, then add the action's enum value for encryption
+	memset(&data[0], 0, 16);
+	memcpy(&data[0], (uint8_t*) &nextAction, sizeof(uint8_t));
+
+	// set initial vector for AES128 CBC encryption, then encrypt the data
+	AES_ctx_set_iv(&aes_context, &iv[0]);
+	AES_CBC_encrypt_buffer(&aes_context, &data[0], 16);
+
+	// for printing out the previous data
+	memcpy(&data_ack[0], &data[0], 16);
+	memcpy(&data_ack[16], &iv[0], 16);
+
+	HAL_Delay(PDM_LOOP_DELAY);
+
+	if (perform_action_on_bike(nextAction) && (send_auth_ack(data, iv) == STATUS_SEND_OK)) {
+//		stdio_write("resp data: 0x");
+//		print_bytes(&data_repl[0], 32);
+//		stdio_write("\r\n");
+//
+//		stdio_write("ack data:  0x");
+//		print_bytes(&data_ack[0], 32);
+//		stdio_write("\r\n");
+		return STATE_DISCOVERY;
+	}
+
+	return STATE_AUTHENTICATION;
+}
+
+bool check_btn_actions(uint8_t* rx_buffer) {
+	bool btn_action_received = true;
+
+	if (is_user_lock_msg(pdm_rx_buffer)) {
+		stdio_write("LOCK BY USER RECEIVED\r\n");
+		toggle_lock();
+	}
+	else {
+		btn_action_received = false;
+	}
+
+	return btn_action_received;
+}
+
+bool toggle_lock() {
+	if (motorcycle_state == LOCK) {
+		return perform_action_on_bike(WAKEUP);
+	}
+	else {
+		return 	perform_action_on_bike(LOCK);
+	}
 }
 
 ecu_action_t check_ecu_action()
 {
-	if (prevDistance >= 1.0 && distance < 1.0) {
+	uint8_t distance_diff = abs(prevDistance - distance);
+
+	char dist_str[32] = {0};
+	snprintf(dist_str, 32, "DIST: %3.2f m\r\n", distance);
+	stdio_write(dist_str);
+
+	snprintf(dist_str, 32, "DIST: %3.2f m\r\n", prevDistance);
+	stdio_write(dist_str);
+
+	if (prevDistance >= FENCING_THRESHOLD && distance < FENCING_THRESHOLD) {
 		return WAKEUP;
 	}
-
-	if (prevDistance <= 1.0 && distance > 1.0) {
+	else if (prevDistance <= FENCING_THRESHOLD && distance > FENCING_THRESHOLD) {
 		return LOCK;
 	}
 
 	return NO_OP;
 }
 
-void perform_action_on_bike(const ecu_action_t action) {
+bool perform_action_on_bike(ecu_action_t action)
+{
+
 	if (action == WAKEUP) {
-		stdio_write("got wakeup signal\r\n");
+		stdio_write("got WAKEUP signal\r\n");
 	}
 	else if (action == LOCK) {
-		stdio_write("got lock signal\r\n");
+		stdio_write("got LOCK signal\r\n");
 	}
+	else if (action == NO_OP) {
+		stdio_write("got NO_OP signal\r\n");
+	}
+
+#ifdef SIM_CONNECTED
+	if (send_can_control_msg(action) != CAN_OK) {
+		stdio_write("CAN Tx error\r\n");
+		return false;
+	}
+	stdio_write("CAN Tx successful\r\n");
+#endif
+
+	//Update motorcycle state
+	prev_motorcycle_state = motorcycle_state;
+	motorcycle_state = action;
+
+	return true;
 }

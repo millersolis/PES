@@ -38,6 +38,7 @@ extern "C" {
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
 extern CAN_HandleTypeDef hcan1;
+extern RNG_HandleTypeDef hrng;
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
