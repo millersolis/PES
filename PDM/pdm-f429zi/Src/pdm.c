@@ -271,9 +271,7 @@ pdm_state_t perform_ranging()
 			if (retry_poll_rx()) {
 				return STATE_RANGING;
 			}
-
 			return STATE_DISCOVERY;		// Avoid getting stuck on rx poll forever
-//			return STATE_RANGING;
 	}
 
 	if (!is_poll_msg(pdm_rx_buffer)) {

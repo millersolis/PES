@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 // DEBUG
-#define INFINITE_RETRIES_RX
+//#define INFINITE_RETRIES_RX
 
 void rid_main();
 

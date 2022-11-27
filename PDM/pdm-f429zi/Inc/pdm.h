@@ -9,7 +9,7 @@
 
 // DEBUG
 //#define TRIGGER_ACTION_PERIODICALLY
-#define INFINITE_RETRIES_RX
+//#define INFINITE_RETRIES_RX
 
 extern void pdm_main();
 
