@@ -11,6 +11,8 @@
 //#define TRIGGER_ACTION_PERIODICALLY
 //#define INFINITE_RETRIES_RX
 
+#define POLL_MAX_RX_RETRY 5
+
 extern void pdm_main();
 
 typedef enum ecu_action_t {
@@ -42,7 +44,5 @@ static uint8_t blink_msg[] = {
 	0x21,									// data; 0x21 is function code for blink
 	0, 0									// FCS; filled as CRC of the frame by hardware
 };
-
-#define POLL_MAX_RX_RETRY 3
 
 #endif // PDM_H

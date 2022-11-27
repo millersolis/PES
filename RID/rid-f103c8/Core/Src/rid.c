@@ -73,7 +73,7 @@ void rid_main()
 				update_state(&state, perform_blink());
 
 				if (state.value == STATE_DISCOVERY) {
-					HAL_Delay(100);
+					HAL_Delay(25);
 				}
 				break;
 
