@@ -40,6 +40,7 @@ pdm_state_t perform_ranging();
 pdm_state_t perform_authentication();
 bool check_btn_actions(uint8_t* rx_buffer);
 bool toggle_lock();
+bool toggle_panic();
 ecu_action_t check_ecu_action();
 bool perform_action_on_bike(ecu_action_t action);
 
@@ -52,7 +53,6 @@ static ecu_action_t nextAction =  NO_OP;
 // Motorcycle state (locked at initialization)
 static ecu_action_t prev_motorcycle_state = LOCK;
 static ecu_action_t motorcycle_state = LOCK;
-static bool panic_on = false;
 
 void pdm_main()
 {

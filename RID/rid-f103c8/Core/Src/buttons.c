@@ -50,7 +50,6 @@ send_status_t send_user_lock_msg()
 	}
 
 	stdio_write("BTN: tx user lock message sent\r\n");
-
 	++frame_seq_nb;
 
 	return STATUS_SEND_OK;
@@ -75,7 +74,6 @@ send_status_t send_user_panic_msg()
 	}
 
 	stdio_write("BTN: tx user panic message sent\r\n");
-
 	++frame_seq_nb;
 
 	return STATUS_SEND_OK;

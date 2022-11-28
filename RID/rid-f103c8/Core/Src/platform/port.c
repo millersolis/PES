@@ -323,7 +323,8 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     }
     else if (GPIO_Pin == LOCK_BTN_Pin)
     {
-    	send_user_lock_msg();
+//    	send_user_lock_msg();
+    	send_user_panic_msg();
     }
     else
     {

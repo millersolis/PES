@@ -188,8 +188,10 @@ class App(tk.Tk):
             print("got PANIC")
             if (not self.panic_on):
                 self.panic_label.configure(bg='#FFC128', fg='black', font=font.Font(weight='bold'))
+                self.panic_on = True
             else:
                 self.panic_label.configure(fg='white', bg='#FFF9E0', font=font.Font(weight='normal'))
+                self.panic_on = False
         else:
             print("got UNKNOWN message")
 
