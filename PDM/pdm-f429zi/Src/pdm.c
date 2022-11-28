@@ -52,6 +52,7 @@ static ecu_action_t nextAction =  NO_OP;
 // Motorcycle state (locked at initialization)
 static ecu_action_t prev_motorcycle_state = LOCK;
 static ecu_action_t motorcycle_state = LOCK;
+static bool panic_on = false;
 
 void pdm_main()
 {
@@ -423,8 +424,12 @@ bool check_btn_actions(uint8_t* rx_buffer) {
 	bool btn_action_received = true;
 
 	if (is_user_lock_msg(pdm_rx_buffer)) {
-		stdio_write("LOCK BY USER RECEIVED\r\n");
+		stdio_write("LOCK by user received\r\n");
 		toggle_lock();
+	}
+	else if (is_user_panic_msg(pdm_rx_buffer)) {
+		stdio_write("PANIC by user received\r\n");
+		toggle_panic();
 	}
 	else {
 		btn_action_received = false;
@@ -440,6 +445,10 @@ bool toggle_lock() {
 	else {
 		return 	perform_action_on_bike(LOCK);
 	}
+}
+
+bool toggle_panic() {
+	return perform_action_on_bike(PANIC);
 }
 
 ecu_action_t check_ecu_action()
@@ -471,6 +480,9 @@ bool perform_action_on_bike(ecu_action_t action)
 	}
 	else if (action == LOCK) {
 		stdio_write("got LOCK signal\r\n");
+	}
+	else if (action == PANIC) {
+		stdio_write("got PANIC signal\r\n");
 	}
 	else if (action == NO_OP) {
 		stdio_write("got NO_OP signal\r\n");

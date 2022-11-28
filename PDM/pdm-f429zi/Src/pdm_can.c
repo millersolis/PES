@@ -76,6 +76,9 @@ can_status_t send_can_control_msg(ecu_action_t action)
 		case LOCK:
 			txData[1] = 0x03;
 			break;
+		case PANIC:
+			txData[1] = 0x04;
+			break;
 		case NO_OP:
 			return CAN_OK;
 		default:

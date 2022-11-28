@@ -21,6 +21,7 @@ MOTORCYCLE_PDM = 'b06188d2-65d6-4ffb-b9b1-578b0e35e002'
 WAKEUP = 1
 START = 2
 LOCK = 3
+PANIC = 4
 
 
 sqlite_db_path = os.path.join(OUTPUTPATH, SQLITE_FILENAME)
@@ -127,6 +128,8 @@ class App(tk.Tk):
         self.rowconfigure([0,1,2], weight=1, minsize=50)
 
         self.create_widgets(sender)
+        self.panic_on = False
+
         self.change_state_label(sender.current_state)
         print ("starting Simulated ECU...")
 
@@ -149,6 +152,9 @@ class App(tk.Tk):
 
         self.lock_label = tk.Label(master=states_frame, text='LOCK', fg='black', bg='#e2c3b8', width=45, height=12)
         self.lock_label.pack()
+
+        self.panic_label = tk.Label(text='PANIC', fg='white', bg='#FFF9E0', width=65, height=35)
+        self.panic_label.grid(row=2, column=1)
 
         self.start_button = tk.Button(text='Start Switch', fg='black', bg='#909090', width=20, height=3, command=lambda: sender.start_motorcycle(self))
         self.start_button.grid(row=1, column=1)
@@ -178,7 +184,12 @@ class App(tk.Tk):
             self.lock_label.configure(bg='red', fg='white', font=font.Font(weight='bold'))
 
             self.start_button.configure(bg='#909090', font=font.Font(weight='normal'))
-
+        elif state == PANIC:
+            print("got PANIC")
+            if (not self.panic_on):
+                self.panic_label.configure(bg='#FFC128', fg='black', font=font.Font(weight='bold'))
+            else:
+                self.panic_label.configure(fg='white', bg='#FFF9E0', font=font.Font(weight='normal'))
         else:
             print("got UNKNOWN message")
 
