@@ -172,7 +172,7 @@ void setup_frame_filtering()
     dwt_setaddress16(short_addr);
     dwt_seteui(extended_addr);
 
-	dwt_enableframefilter(DWT_FF_BEACON_EN | DWT_FF_DATA_EN);
+//	dwt_enableframefilter(DWT_FF_BEACON_EN | DWT_FF_DATA_EN);
 }
 
 bool is_blink_msg(uint8_t* rx_buffer)
@@ -252,7 +252,7 @@ pdm_state_t perform_ranging()
 		return STATE_RANGING;
 	}
 
-	dwt_setrxtimeout(0);
+	dwt_setrxtimeout(10000);
 	dwt_setpreambledetecttimeout(1000);
 	dwt_rxenable(DWT_START_RX_IMMEDIATE);
 

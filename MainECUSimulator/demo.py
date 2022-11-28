@@ -102,7 +102,8 @@ class SenderReceiver:
             # Code to interpret received message data and call proper function here
             if message.data[0] == 1:
                 state_received = message.data[1]
-                self.current_state = state_received
+                if state_received != PANIC:
+                    self.current_state = state_received
                 app.change_state_label(state_received)
             else:
                 pass # TODO: Send enrollment table

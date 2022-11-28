@@ -6,6 +6,8 @@
 #include "dw_config.h"
 #include "dw_helpers.h"
 
+#define DEBOUNCE_MILLIS 300
+
 #define USER_BTN_FRAME_COMMON_LEN 22
 
 bool is_user_lock_msg(uint8_t* rx_buffer);

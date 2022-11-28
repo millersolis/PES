@@ -313,6 +313,9 @@ void port_set_dw1000_fastrate(void)
  * */
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
+	static uint32_t now;
+	now = HAL_GetTick();
+
     if (GPIO_Pin == DW_RESET_Pin)
     {
         signalResetDone = 1;
@@ -323,11 +326,21 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     }
     else if (GPIO_Pin == LOCK_BTN_Pin)
     {
-    	send_user_lock_msg();
+		static uint32_t lock_last_pressed = 0;
+
+		if (now - lock_last_pressed > DEBOUNCE_MILLIS) {
+	    	send_user_lock_msg();
+	    	lock_last_pressed = now;
+		}
     }
     else if (GPIO_Pin == PANIC_BTN_Pin)
     {
-    	send_user_panic_msg();
+    	static uint32_t panic_last_pressed = 0;
+
+		if (now - panic_last_pressed > DEBOUNCE_MILLIS) {
+	    	send_user_panic_msg();
+	    	panic_last_pressed = now;
+		}
     }
     else
     {

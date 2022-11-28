@@ -59,7 +59,7 @@ receive_status_t receive_ranging_init_msg(uint8_t buffer[RX_BUF_LEN])
 {
 	uint32_t statusReg = 0;
 	uint32_t msgReceivedFlags = SYS_STATUS_RXFCG | SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR;
-	char statusRegData[4];
+
 	while (!((statusReg = dwt_read32bitreg(SYS_STATUS_ID)) & msgReceivedFlags));
 
 	if ((statusReg & SYS_STATUS_ALL_RX_TO) != 0) {

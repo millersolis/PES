@@ -66,7 +66,7 @@ void rid_main()
 				print_state_if_changed(&state, "\r\nIn DISCOVERY\r\n");
 //				clear_and_set_led(LD1_Pin);
 
-				dwt_setrxaftertxdelay(800);
+				dwt_setrxaftertxdelay(0x1000);
 				dwt_setrxtimeout(0);
 				dwt_setpreambledetecttimeout(0x1000);
 
@@ -226,6 +226,7 @@ rid_state_t perform_ranging()
 	// manually force back to idle mode so the rest of ranging works
 	dwt_forcetrxoff();
 
+	dwt_setrxtimeout(0);
 	dwt_setrxaftertxdelay(POLL_TX_TO_RESP_RX_DLY_UUS);
 	dwt_setrxtimeout(RESP_RX_TIMEOUT_UUS);
 
