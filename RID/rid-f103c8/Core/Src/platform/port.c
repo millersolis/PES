@@ -333,6 +333,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     {
     	stdio_write("Got extraneous interrupt\r\n");
     }
+    __HAL_GPIO_EXTI_CLEAR_IT(GPIO_Pin);
 }
 
 /* @fn      process_deca_irq
