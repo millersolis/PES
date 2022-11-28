@@ -267,15 +267,18 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(DW_RESET_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : LOCK_BTN_Pin */
-  GPIO_InitStruct.Pin = LOCK_BTN_Pin;
+  /*Configure GPIO pins : PANIC_BTN_Pin LOCK_BTN_Pin */
+  GPIO_InitStruct.Pin = PANIC_BTN_Pin|LOCK_BTN_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
-  HAL_GPIO_Init(LOCK_BTN_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
 }
 
